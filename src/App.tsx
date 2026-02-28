@@ -79,10 +79,10 @@ export default function App() {
         </motion.div>
 
         {/* Main Grid: Console + Risk + Chat */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
           {/* Left: Reasoning Console */}
           <motion.div
-            className="lg:col-span-5"
+            className="lg:col-span-5 flex flex-col"
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.5, delay: 0.2 }}

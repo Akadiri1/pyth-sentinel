@@ -59,7 +59,7 @@ export default function ReasoningConsole({ logs }: ReasoningConsoleProps) {
       {/* Log entries */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1.5 max-h-[400px]"
+        className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1.5"
       >
         <AnimatePresence initial={false}>
           {logs.map((log, index) => {
