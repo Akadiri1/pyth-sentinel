@@ -15,9 +15,9 @@ export default function PositionsPanel({ positions, isSheltered }: PositionsPane
 
   return (
     <div className="glass-card p-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-3">
         <div className="flex items-center gap-2">
-          <Wallet className="w-4 h-4 text-pyth-purple" />
+          <Wallet className="w-4 h-4 text-pyth-purple shrink-0" />
           <h2 className="font-mono text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
             Active Positions
           </h2>
@@ -78,14 +78,14 @@ function PositionRow({ position }: { position: Position }) {
 
   return (
     <motion.div
-      className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-pyth-border hover:border-pyth-border-hover transition-all"
+      className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-pyth-border hover:border-pyth-border-hover transition-all"
       whileHover={{ x: 2 }}
     >
       {/* Side indicator */}
-      <div className={`w-1 h-8 rounded-full ${position.side === 'long' ? 'bg-pyth-green' : 'bg-pyth-red'}`} />
+      <div className={`w-1 h-8 rounded-full shrink-0 ${position.side === 'long' ? 'bg-pyth-green' : 'bg-pyth-red'}`} />
 
       {/* Asset info */}
-      <div className="flex-1">
+      <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs font-bold text-pyth-text">{position.asset}</span>
           <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
@@ -105,7 +105,7 @@ function PositionRow({ position }: { position: Position }) {
       </div>
 
       {/* P&L */}
-      <div className="text-right">
+      <div className="text-right shrink-0">
         <div className="flex items-center gap-1 justify-end">
           {isProfit ? (
             <ArrowUpRight className="w-3 h-3 text-pyth-green" />
@@ -122,7 +122,7 @@ function PositionRow({ position }: { position: Position }) {
       </div>
 
       {/* Health Factor */}
-      <div className="text-right pl-2 border-l border-pyth-border">
+      <div className="hidden sm:block text-right pl-2 border-l border-pyth-border shrink-0">
         <span className="font-mono text-[9px] text-pyth-text-muted block">Health</span>
         <span className={`font-mono text-xs font-bold ${healthColor}`}>
           {position.healthFactor.toFixed(2)}

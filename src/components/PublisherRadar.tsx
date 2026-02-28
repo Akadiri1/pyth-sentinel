@@ -71,9 +71,9 @@ export default function PublisherRadar({ radar }: Props) {
   return (
     <div className="glass-card p-4 space-y-4 min-h-[200px]">
       {/* ── Header ── */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-pyth-purple/20 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-lg bg-pyth-purple/20 flex items-center justify-center shrink-0">
             <Radar className="w-4 h-4 text-pyth-purple" />
           </div>
           <div>
@@ -87,7 +87,7 @@ export default function PublisherRadar({ radar }: Props) {
         </div>
 
         {/* ── Quick Stats ── */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           {suspiciousCount > 0 && (
             <motion.div
               initial={{ scale: 0.8, opacity: 0 }}
@@ -100,7 +100,7 @@ export default function PublisherRadar({ radar }: Props) {
               </span>
             </motion.div>
           )}
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-pyth-green/10">
+          <div className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full bg-pyth-green/10">
             <Zap className="w-3 h-3 text-pyth-green" />
             <span className="text-[10px] font-mono text-pyth-green">
               {fastestPublisher.name} · {fastestPublisher.avgLatency}ms
@@ -122,13 +122,13 @@ export default function PublisherRadar({ radar }: Props) {
         </div>
       ) : (
       <>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
         {/* Feed selector dropdown */}
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <select
             value={selectedFeed}
             onChange={(e) => setSelectedFeed(e.target.value)}
-            className="appearance-none bg-pyth-surface border border-pyth-border rounded-lg px-3 py-1.5 pr-7 text-xs font-mono text-pyth-text focus:outline-none focus:border-pyth-purple/50 cursor-pointer"
+            className="appearance-none w-full sm:w-auto bg-pyth-surface border border-pyth-border rounded-lg px-3 py-1.5 pr-7 text-xs font-mono text-pyth-text focus:outline-none focus:border-pyth-purple/50 cursor-pointer"
           >
             {feedSymbols.map(symbol => (
               <option key={symbol} value={symbol}>{symbol}</option>
@@ -138,12 +138,12 @@ export default function PublisherRadar({ radar }: Props) {
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 bg-pyth-surface rounded-lg p-0.5">
+        <div className="flex items-center gap-1 bg-pyth-surface rounded-lg p-0.5 w-full sm:w-auto overflow-x-auto">
           {(['publishers', 'confidence', 'stakes'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-3 py-1 rounded-md text-[10px] font-mono uppercase tracking-wider transition-all ${
+              className={`px-2 sm:px-3 py-1 rounded-md text-[10px] font-mono uppercase tracking-wider transition-all whitespace-nowrap ${
                 activeTab === tab
                   ? 'bg-pyth-purple/20 text-pyth-lavender'
                   : 'text-pyth-text-muted hover:text-pyth-text-dim'
@@ -229,7 +229,7 @@ function PublisherTable({
   return (
     <div className="space-y-1">
       {/* Header row */}
-      <div className="grid grid-cols-12 gap-2 px-3 py-1 text-[9px] font-mono text-pyth-text-muted uppercase tracking-wider">
+      <div className="hidden sm:grid grid-cols-12 gap-2 px-3 py-1 text-[9px] font-mono text-pyth-text-muted uppercase tracking-wider">
         <div className="col-span-3">Publisher</div>
         <div className="col-span-2 text-right">Deviation</div>
         <div className="col-span-2 text-right">Latency</div>
@@ -252,81 +252,108 @@ function PublisherTable({
               <motion.div
                 layout
                 onClick={() => onToggle(isExpanded ? null : m.publisherId)}
-                className={`grid grid-cols-12 gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all
+                className={`px-3 py-2 rounded-lg cursor-pointer transition-all
                   ${isSuspicious ? 'bg-pyth-red/5 border border-pyth-red/20' : 'bg-pyth-surface/50 hover:bg-pyth-surface'}
                   ${isExpanded ? 'border border-pyth-purple/30 bg-pyth-purple/5' : ''}`}
               >
-                {/* Publisher name */}
-                <div className="col-span-3 flex items-center gap-2">
-                  <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-bold font-mono ${tierColors[pub.tier]}`}>
-                    {pub.shortName}
+                {/* ── Mobile Card Layout ── */}
+                <div className="sm:hidden space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-bold font-mono shrink-0 ${tierColors[pub.tier]}`}>
+                        {pub.shortName}
+                      </div>
+                      <div className="truncate">
+                        <div className="text-xs text-pyth-text truncate">{pub.name}</div>
+                      </div>
+                    </div>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono uppercase shrink-0 ${colors.bg} ${colors.text}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${colors.dot} ${isSuspicious ? 'animate-pulse' : ''}`} />
+                      {m.status}
+                    </span>
                   </div>
-                  <div className="truncate">
-                    <div className="text-xs text-pyth-text truncate">{pub.name}</div>
-                    <div className={`text-[9px] font-mono ${tierColors[pub.tier]} inline-block px-1 rounded`}>
-                      {pub.tier}
+                  <div className="flex items-center gap-3 text-[10px] font-mono text-pyth-text-muted">
+                    <span>Dev: <span className={m.deviation > 20 ? 'text-pyth-red font-bold' : m.deviation > 5 ? 'text-pyth-yellow' : 'text-pyth-text-dim'}>{m.deviation.toFixed(1)}σ</span></span>
+                    <span>Lat: <span className={m.latency > 80 ? 'text-pyth-yellow' : m.latency < 20 ? 'text-pyth-green' : 'text-pyth-text-dim'}>{m.latency}ms</span></span>
+                    <span>Up: <span className={m.uptime >= 99 ? 'text-pyth-green' : m.uptime >= 97 ? 'text-pyth-text-dim' : 'text-pyth-yellow'}>{m.uptime}%</span></span>
+                    <span className={`text-[9px] ${tierColors[pub.tier]} px-1 rounded`}>{pub.tier}</span>
+                  </div>
+                </div>
+
+                {/* ── Desktop Grid Layout ── */}
+                <div className="hidden sm:grid grid-cols-12 gap-2">
+                  {/* Publisher name */}
+                  <div className="col-span-3 flex items-center gap-2">
+                    <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-bold font-mono ${tierColors[pub.tier]}`}>
+                      {pub.shortName}
+                    </div>
+                    <div className="truncate">
+                      <div className="text-xs text-pyth-text truncate">{pub.name}</div>
+                      <div className={`text-[9px] font-mono ${tierColors[pub.tier]} inline-block px-1 rounded`}>
+                        {pub.tier}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Deviation */}
-                <div className="col-span-2 flex items-center justify-end">
-                  <span className={`text-xs font-mono ${
-                    m.deviation > 20 ? 'text-pyth-red font-bold' :
-                    m.deviation > 5 ? 'text-pyth-yellow' :
-                    'text-pyth-text-dim'
-                  }`}>
-                    {m.deviation.toFixed(1)}σ
-                  </span>
-                </div>
+                  {/* Deviation */}
+                  <div className="col-span-2 flex items-center justify-end">
+                    <span className={`text-xs font-mono ${
+                      m.deviation > 20 ? 'text-pyth-red font-bold' :
+                      m.deviation > 5 ? 'text-pyth-yellow' :
+                      'text-pyth-text-dim'
+                    }`}>
+                      {m.deviation.toFixed(1)}σ
+                    </span>
+                  </div>
 
-                {/* Latency */}
-                <div className="col-span-2 flex items-center justify-end">
-                  <span className={`text-xs font-mono ${
-                    m.latency > 80 ? 'text-pyth-yellow' :
-                    m.latency < 20 ? 'text-pyth-green' :
-                    'text-pyth-text-dim'
-                  }`}>
-                    {m.latency}ms
-                  </span>
-                </div>
+                  {/* Latency */}
+                  <div className="col-span-2 flex items-center justify-end">
+                    <span className={`text-xs font-mono ${
+                      m.latency > 80 ? 'text-pyth-yellow' :
+                      m.latency < 20 ? 'text-pyth-green' :
+                      'text-pyth-text-dim'
+                    }`}>
+                      {m.latency}ms
+                    </span>
+                  </div>
 
-                {/* Uptime */}
-                <div className="col-span-2 flex items-center justify-end">
-                  <span className={`text-xs font-mono ${
-                    m.uptime >= 99 ? 'text-pyth-green' :
-                    m.uptime >= 97 ? 'text-pyth-text-dim' :
-                    'text-pyth-yellow'
-                  }`}>
-                    {m.uptime}%
-                  </span>
-                </div>
+                  {/* Uptime */}
+                  <div className="col-span-2 flex items-center justify-end">
+                    <span className={`text-xs font-mono ${
+                      m.uptime >= 99 ? 'text-pyth-green' :
+                      m.uptime >= 97 ? 'text-pyth-text-dim' :
+                      'text-pyth-yellow'
+                    }`}>
+                      {m.uptime}%
+                    </span>
+                  </div>
 
-                {/* Status badge */}
-                <div className="col-span-2 flex items-center justify-center">
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono uppercase ${colors.bg} ${colors.text}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${colors.dot} ${isSuspicious ? 'animate-pulse' : ''}`} />
-                    {m.status}
-                  </span>
-                </div>
+                  {/* Status badge */}
+                  <div className="col-span-2 flex items-center justify-center">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono uppercase ${colors.bg} ${colors.text}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${colors.dot} ${isSuspicious ? 'animate-pulse' : ''}`} />
+                      {m.status}
+                    </span>
+                  </div>
 
-                {/* Mini sparkline */}
-                <div className="col-span-1 flex items-center justify-center">
-                  {m.priceHistory.length > 2 && (
-                    <div className="w-8 h-4">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={m.priceHistory.map((p, i) => ({ v: p, i }))}>
-                          <Area
-                            type="monotone"
-                            dataKey="v"
-                            stroke={isSuspicious ? '#FF4162' : '#AB87FF'}
-                            fill={isSuspicious ? 'rgba(255,65,98,0.1)' : 'rgba(171,135,255,0.1)'}
-                            strokeWidth={1}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
+                  {/* Mini sparkline */}
+                  <div className="col-span-1 flex items-center justify-center">
+                    {m.priceHistory.length > 2 && (
+                      <div className="w-8 h-4">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={m.priceHistory.map((p, i) => ({ v: p, i }))}>
+                            <Area
+                              type="monotone"
+                              dataKey="v"
+                              stroke={isSuspicious ? '#FF4162' : '#AB87FF'}
+                              fill={isSuspicious ? 'rgba(255,65,98,0.1)' : 'rgba(171,135,255,0.1)'}
+                              strokeWidth={1}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </motion.div>
 
@@ -340,8 +367,8 @@ function PublisherTable({
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
-                    <div className="px-4 py-3 ml-4 border-l-2 border-pyth-purple/30 space-y-2">
-                      <div className="grid grid-cols-3 gap-3">
+                    <div className="px-3 sm:px-4 py-3 sm:ml-4 border-l-2 border-pyth-purple/30 space-y-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
                         <div>
                           <div className="text-[9px] font-mono text-pyth-text-muted uppercase">Reported Price</div>
                           <div className="text-sm font-mono text-pyth-text">
@@ -516,7 +543,7 @@ function StakesPanel({ publishers }: { publishers: import('../types').Publisher[
   return (
     <div className="space-y-3">
       {/* Total stake header */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
         <div className="bg-pyth-surface/50 rounded-lg p-3 text-center">
           <div className="text-[9px] font-mono text-pyth-text-muted uppercase">Total Staked</div>
           <div className="text-lg font-mono font-bold text-pyth-purple">

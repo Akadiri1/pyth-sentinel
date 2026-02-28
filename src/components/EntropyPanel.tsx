@@ -109,7 +109,7 @@ export default function EntropyPanel({ simulations, entropyStatus, latestSeed }:
                   <p className="font-mono text-[11px] text-pyth-text font-medium leading-tight">
                     {sim.scenario}
                   </p>
-                  <div className="flex items-center gap-3 mt-1.5">
+                  <div className="flex items-center gap-2 sm:gap-3 flex-wrap mt-1.5">
                     <span className="font-mono text-[9px] text-pyth-text-muted">
                       P: {(sim.probability * 100).toFixed(1)}%
                     </span>

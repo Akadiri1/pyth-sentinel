@@ -28,7 +28,7 @@ export default function Header({ agentState, latency, connectionStatus, dataSour
   };
 
   return (
-    <header className="glass-card px-6 py-3 flex items-center justify-between">
+    <header className="glass-card px-3 sm:px-6 py-3 flex items-center justify-between gap-2">
       {/* Left: Logo + Title */}
       <div className="flex items-center gap-3">
         <div className="relative">

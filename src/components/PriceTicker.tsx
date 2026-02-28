@@ -28,15 +28,15 @@ const categoryColors: Record<string, string> = {
 export default function PriceTicker({ feeds, updatedId, isLive = false }: PriceTickerProps) {
   return (
     <div className="glass-card p-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-3">
         <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-pyth-green' : 'bg-pyth-yellow'} animate-pulse`} />
+          <div className={`w-2 h-2 rounded-full shrink-0 ${isLive ? 'bg-pyth-green' : 'bg-pyth-yellow'} animate-pulse`} />
           <h2 className="font-mono text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
-            {isLive ? 'Pyth Hermes — Live Prices' : 'Pyth Pro Real-Time Feeds (Simulated)'}
+            {isLive ? 'Pyth Hermes — Live' : 'Pyth Pro Feeds'}
           </h2>
         </div>
         <span className="font-mono text-[10px] text-pyth-text-muted">
-          {feeds.length} active feeds · {isLive ? 'hermes.pyth.network' : 'mock data'}
+          {feeds.length} feeds · {isLive ? 'hermes.pyth.network' : 'mock data'}
         </span>
       </div>
 

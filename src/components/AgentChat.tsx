@@ -308,7 +308,7 @@ Try: *"What's the risk if rates rise?"* or *"Analyze SOL position"*`,
             <Send className="w-4 h-4" />
           </motion.button>
         </div>
-        <div className="flex items-center gap-3 mt-2">
+        <div className="flex items-center gap-2 flex-wrap mt-2">
           {['Analyze SOL', 'Risk report', 'Hedge rates'].map(suggestion => (
             <button
               key={suggestion}
