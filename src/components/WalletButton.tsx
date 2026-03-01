@@ -1,7 +1,7 @@
 // ── Wallet Connect Button + Balance Display ──
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wallet, LogOut, Copy, Check, ExternalLink } from 'lucide-react';
 
@@ -11,6 +11,19 @@ export default function WalletButton() {
   const [balance, setBalance] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+
+  // Position dropdown relative to button
+  useEffect(() => {
+    if (showDropdown && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPos({
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right,
+      });
+    }
+  }, [showDropdown]);
 
   // Fetch SOL balance
   useEffect(() => {
@@ -84,6 +97,7 @@ export default function WalletButton() {
   return (
     <div className="relative">
       <motion.button
+        ref={buttonRef}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         onClick={() => setShowDropdown(!showDropdown)}
@@ -101,7 +115,7 @@ export default function WalletButton() {
         )}
       </motion.button>
 
-      {/* Dropdown */}
+      {/* Dropdown — fixed position to escape stacking context */}
       <AnimatePresence>
         {showDropdown && (
           <motion.div
@@ -109,9 +123,10 @@ export default function WalletButton() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-2 w-64 z-50
+            className="fixed w-64 z-[100]
               bg-pyth-surface border border-pyth-border rounded-xl
               shadow-2xl shadow-black/40 overflow-hidden"
+            style={{ top: dropdownPos.top, right: dropdownPos.right }}
           >
             {/* Balance section */}
             <div className="p-4 border-b border-pyth-border">
@@ -184,7 +199,7 @@ export default function WalletButton() {
       {/* Click outside handler */}
       {showDropdown && (
         <div
-          className="fixed inset-0 z-40"
+          className="fixed inset-0 z-[99]"
           onClick={() => setShowDropdown(false)}
         />
       )}
