@@ -43,11 +43,16 @@ Sentinel-1 is an **autonomous AI risk warden** — a real-time portfolio monitor
 ├──────────────┴───────────────┴───────────────┴───────────────────────┤
 │  Publisher Radar — Oracle Meta-Analysis (Full Width)                  │
 │  Publisher Table · Confidence Sensitivity · Stake Caps               │
+├──────────────────────────────────────────────────────────────────────┤
+│  Historical Price Chart (Full Width) — Line / Area / OHLC            │
+│  Timeframes (1m/5m/10m/All) · Confidence Bands · EMA Overlay         │
 ├─────────────────────────┬────────────────────────────────────────────┤
 │  Positions Panel        │  Entropy Stress Tests                      │
 │  (4 leveraged)          │  (4 live scenarios — real Fortuna seeds)   │
 ├─────────────────────────┴────────────────────────────────────────────┤
-│  Wallet Security │ Airdrop Guard (Token Scanner + Paste Address)     │
+│  Wallet Security │ Alert Notifications (Telegram/Discord/Webhook)    │
+├──────────────────┼───────────────────────────────────────────────────┤
+│  Airdrop Guard   │ Multi-Wallet Comparison (Side-by-Side Risk)       │
 └──────────────────┴───────────────────────────────────────────────────┘
          │                    │                         │
          ▼                    ▼                         ▼
@@ -226,6 +231,44 @@ Full SPL token account scanner protecting wallets from airdrop drain attacks:
 - Generated from live dashboard state with Pyth Hermes data attribution
 - One-click download from footer button
 
+### 18. Historical Price Charts
+- **Extended price history** — stores up to 600 data points per feed (accumulated from SSE stream)
+- **3 chart modes**: Line chart, Area chart with gradient fill, OHLC candlestick bars
+- **4 timeframes**: 1m, 5m, 10m, All — dynamically filtered from accumulated history
+- **Confidence band overlay** — shows Pyth publisher disagreement range as a translucent band
+- **EMA tracking line** — dashed cyan line showing Pyth's exponential moving average
+- **Real-time statistics bar**: Current price, High, Low, Average, Standard Deviation, Data Point count
+- **OHLC aggregation** — converts raw tick data into candlestick bars (5s/15s/30s/60s depending on timeframe)
+- **Collapsible panel** — toggle visibility to reduce dashboard clutter
+- Built with Recharts `ComposedChart`, `LineChart`, `AreaChart` with custom tooltips
+
+### 19. Alert Notifications (Telegram / Discord / Custom Webhook)
+- **Configurable alert rules** with 5 trigger types:
+  - Price Above threshold (e.g., BTC > $100k)
+  - Price Below threshold (e.g., SOL < $100)
+  - Percentage Change (e.g., SOL drops 5%)
+  - Risk Score exceeds threshold (e.g., risk > 75)
+  - Security Alert (critical wallet security events)
+- **3 webhook channels**: Telegram Bot (via Bot API), Discord Webhook (embedded messages), Custom HTTP POST
+- **Cooldown system** — prevents alert spam (configurable 1m / 5m / 10m / 30m per rule)
+- **Telegram formatting** — HTML-formatted messages with severity icons and timestamps
+- **Discord embeds** — color-coded embeds (cyan=info, yellow=warning, red=critical) with Sentinel-1 branding
+- **Test webhook button** — verify connectivity before going live
+- **Alert history** — scrollable log of all sent notifications with success/failure status
+- **Persistent configuration** — rules, webhook configs, and alert history saved to localStorage
+- **3-tab UI**: Alert Rules (add/edit/toggle/delete), Webhooks (configure endpoints), History (sent alerts)
+
+### 20. Multi-Wallet Comparison
+- **Side-by-side risk analysis** of multiple Solana wallets
+- **Add any wallet address** with optional label (e.g., "Main", "DAO Treasury", "Team") — stored in localStorage
+- **Per-wallet scanning** — runs full Airdrop Guard scan (SPL tokens, delegations, Jupiter metadata) on each wallet
+- **SOL balance display** — fetches on-chain balance for each wallet
+- **Bar chart comparison** — visual risk score comparison across all scanned wallets (color-coded green/yellow/orange/red)
+- **Wallet cards** with: risk score progress bar, SOL balance, token count, delegation count, alert count, risk label badge
+- **Summary statistics** — aggregate averages across all wallets (avg risk score, total tokens, total delegations, total alerts)
+- **Scan All** button — batch-scan all wallets sequentially
+- **Persistent wallet list** — saved addresses and labels persist across sessions
+
 ---
 
 ## Tech Stack
@@ -236,11 +279,11 @@ Full SPL token account scanner protecting wallets from airdrop drain attacks:
 | **Build** | Vite 6.4.1 |
 | **Styling** | Tailwind CSS v4 (`@tailwindcss/vite` plugin, `@theme` directive) |
 | **Animation** | Framer Motion |
-| **Charts** | Recharts (sparkline AreaCharts) |
+| **Charts** | Recharts (sparklines, AreaCharts, LineCharts, ComposedCharts, BarCharts) |
 | **Icons** | Lucide React (~25 icons) |
 | **Wallet** | `@solana/wallet-adapter-react` + `@solana/wallet-adapter-phantom` |
 | **Blockchain** | `@solana/web3.js` + `@solana/spl-token` |
-| **Data** | Pyth Hermes SSE + REST (live) + Pyth Entropy (Fortuna) + Jupiter Token List |
+| **Data** | Pyth Hermes SSE + REST (live) + Pyth Entropy (Fortuna) + Jupiter Token List + Telegram/Discord Webhooks |
 | **Fonts** | Google Fonts (JetBrains Mono, Inter) |
 | **Deployment** | Vercel |
 
@@ -272,11 +315,16 @@ sentinel-1/
 │   │   ├── WalletProvider.tsx           # Solana wallet adapter provider
 │   │   ├── WalletSecurityPanel.tsx      # SOL balance + transaction security
 │   │   ├── AirdropGuardPanel.tsx        # Token scanner + paste address (~640 lines)
+│   │   ├── PriceChartPanel.tsx          # Historical price charts (Line/Area/OHLC)
+│   │   ├── AlertNotificationsPanel.tsx  # Webhook alert config (Telegram/Discord)
+│   │   ├── MultiWalletPanel.tsx         # Multi-wallet risk comparison
 │   │   └── ErrorBoundary.tsx            # React error boundary wrapper
 │   └── services/
-│       ├── pythHermesService.ts         # Live Pyth Hermes REST integration
+│       ├── pythHermesService.ts         # Live Pyth Hermes SSE + REST integration
 │       ├── pythEntropyService.ts        # Real Pyth Entropy (Fortuna) integration
 │       ├── publisherRadarService.ts     # Publisher simulation + confidence tracking
+│       ├── priceHistoryService.ts       # Extended price history storage + OHLC aggregation
+│       ├── alertService.ts              # Webhook alert service (Telegram/Discord/Custom)
 │       ├── airdropGuardService.ts       # SPL token scanning + Jupiter metadata (~450 lines)
 │       └── mockPythService.ts           # Mock data fallback service
 ├── index.html                           # Entry HTML with Google Fonts

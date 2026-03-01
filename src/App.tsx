@@ -19,6 +19,9 @@ import BacktestPanel from './components/BacktestPanel';
 import WalletSecurityPanel from './components/WalletSecurityPanel';
 import SecurityAlertModal from './components/SecurityAlertModal';
 import AirdropGuardPanel from './components/AirdropGuardPanel';
+import PriceChartPanel from './components/PriceChartPanel';
+import AlertNotificationsPanel from './components/AlertNotificationsPanel';
+import MultiWalletPanel from './components/MultiWalletPanel';
 import WalletProvider from './components/WalletProvider';
 import ErrorBoundary from './components/ErrorBoundary';
 import { usePriceFeeds, useAgentLogs, useLiveRiskMetrics, useAgentState, useLivePositions, useLiveEntropy, usePublisherRadar, useWalletSecurity, useAirdropGuard } from './hooks';
@@ -171,6 +174,19 @@ function AppInner() {
           </ErrorBoundary>
         </motion.div>
 
+        {/* Historical Price Chart (Full Width) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.52 }}
+          role="region"
+          aria-label="Price Chart"
+        >
+          <ErrorBoundary>
+            <PriceChartPanel feeds={feeds} />
+          </ErrorBoundary>
+        </motion.div>
+
         {/* Historical Replay / Backtest (Full Width) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -227,6 +243,23 @@ function AppInner() {
           </ErrorBoundary>
         </motion.div>
 
+        {/* Alert Notifications (Full Width) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.78 }}
+          role="region"
+          aria-label="Alert Notifications"
+        >
+          <ErrorBoundary>
+            <AlertNotificationsPanel
+              feeds={feeds}
+              riskMetrics={riskMetrics}
+              securityAlertCount={criticalAlerts.length}
+            />
+          </ErrorBoundary>
+        </motion.div>
+
         {/* Airdrop Guard (Full Width) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -246,6 +279,19 @@ function AppInner() {
               onRevokeDelegation={revokeDelegation}
               onRevokeAll={revokeAllDelegations}
             />
+          </ErrorBoundary>
+        </motion.div>
+
+        {/* Multi-Wallet Comparison (Full Width) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.85 }}
+          role="region"
+          aria-label="Multi-Wallet Comparison"
+        >
+          <ErrorBoundary>
+            <MultiWalletPanel />
           </ErrorBoundary>
         </motion.div>
 

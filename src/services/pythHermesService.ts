@@ -2,6 +2,7 @@
 // Connects to Pyth Hermes API for live production price feeds
 
 import type { PriceFeed } from '../types';
+import { recordPricePoint } from './priceHistoryService';
 
 // ── Real Pyth Mainnet Feed IDs ──
 export const PYTH_FEEDS = [
@@ -132,6 +133,9 @@ function hermesToPriceFeed(update: HermesParsedUpdate): PriceFeed | null {
   const changePercent = firstPrice !== 0 ? (change / firstPrice) * 100 : 0;
 
   const sparkline = updateSparkline(cleanId, price);
+
+  // Record to extended history for historical charts
+  recordPricePoint(feedConfig.id, price, confidence, emaPrice);
 
   return {
     id: feedConfig.id,

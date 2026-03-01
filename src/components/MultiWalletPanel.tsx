@@ -1,0 +1,523 @@
+// ── Multi-Wallet Comparison Panel ──
+// Compare risk profiles across multiple Solana wallets side-by-side
+
+import { useState, useCallback, memo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useConnection } from '@solana/wallet-adapter-react';
+import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import {
+  Users,
+  Plus,
+  Trash2,
+  RefreshCw,
+  Shield,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Search,
+  Copy,
+  CheckCircle2,
+} from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell } from 'recharts';
+import {
+  scanTokenAccounts,
+  computeAirdropRiskScore,
+  airdropRiskColor,
+  airdropRiskLabel,
+  type AirdropGuardState,
+  type AirdropRisk,
+} from '../services/airdropGuardService';
+import InfoTooltip from './InfoTooltip';
+
+interface WalletProfile {
+  address: string;
+  label: string;
+  state: AirdropGuardState | null;
+  isScanning: boolean;
+  error?: string;
+  solBalance?: number;
+}
+
+const STORAGE_KEY = 'sentinel1_multi_wallets';
+
+function loadSavedWallets(): WalletProfile[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Array<{ address: string; label: string }>;
+      return parsed.map(w => ({
+        address: w.address,
+        label: w.label,
+        state: null,
+        isScanning: false,
+      }));
+    }
+  } catch { /* ignore */ }
+  return [];
+}
+
+function saveWallets(wallets: WalletProfile[]) {
+  const slim = wallets.map(w => ({ address: w.address, label: w.label }));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+}
+
+function shortenAddress(addr: string): string {
+  if (addr.length <= 12) return addr;
+  return addr.slice(0, 4) + '...' + addr.slice(-4);
+}
+
+export default memo(function MultiWalletPanel() {
+  const { connection } = useConnection();
+  const [wallets, setWallets] = useState<WalletProfile[]>(loadSavedWallets);
+  const [newAddress, setNewAddress] = useState('');
+  const [newLabel, setNewLabel] = useState('');
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  // ── Add wallet ──
+  const handleAddWallet = useCallback(() => {
+    const trimmedAddr = newAddress.trim();
+    if (!trimmedAddr || trimmedAddr.length < 32) return;
+    if (wallets.some(w => w.address === trimmedAddr)) return;
+
+    const profile: WalletProfile = {
+      address: trimmedAddr,
+      label: newLabel.trim() || `Wallet ${wallets.length + 1}`,
+      state: null,
+      isScanning: false,
+    };
+    const updated = [...wallets, profile];
+    setWallets(updated);
+    saveWallets(updated);
+    setNewAddress('');
+    setNewLabel('');
+  }, [newAddress, newLabel, wallets]);
+
+  // ── Remove wallet ──
+  const handleRemoveWallet = useCallback((address: string) => {
+    const updated = wallets.filter(w => w.address !== address);
+    setWallets(updated);
+    saveWallets(updated);
+  }, [wallets]);
+
+  // ── Scan a single wallet ──
+  const scanWallet = useCallback(async (address: string) => {
+    setWallets(prev => prev.map(w =>
+      w.address === address ? { ...w, isScanning: true, error: undefined } : w
+    ));
+
+    try {
+      const { accounts, alerts } = await scanTokenAccounts(connection, address);
+      const { score } = computeAirdropRiskScore(accounts, alerts);
+
+      // Get SOL balance
+      let solBalance = 0;
+      try {
+        const lamports = await connection.getBalance(new PublicKey(address));
+        solBalance = lamports / LAMPORTS_PER_SOL;
+      } catch { /* ignore */ }
+
+      const totalDelegations = accounts.filter(a => a.delegate !== null).length;
+      const suspiciousTokenCount = accounts.filter(
+        a => a.riskLevel === 'suspicious' || a.riskLevel === 'dangerous'
+      ).length;
+
+      setWallets(prev => prev.map(w =>
+        w.address === address ? {
+          ...w,
+          isScanning: false,
+          solBalance,
+          state: {
+            isScanning: false,
+            lastScanTime: Date.now(),
+            tokenAccounts: accounts,
+            alerts,
+            riskScore: score,
+            totalDelegations,
+            suspiciousTokenCount,
+            notificationsEnabled: false,
+          },
+        } : w
+      ));
+    } catch (err) {
+      setWallets(prev => prev.map(w =>
+        w.address === address ? {
+          ...w,
+          isScanning: false,
+          error: err instanceof Error ? err.message : 'Scan failed',
+        } : w
+      ));
+    }
+  }, [connection]);
+
+  // ── Scan all wallets ──
+  const scanAll = useCallback(async () => {
+    for (const wallet of wallets) {
+      await scanWallet(wallet.address);
+    }
+  }, [wallets, scanWallet]);
+
+  // ── Copy address ──
+  const handleCopy = useCallback((addr: string) => {
+    navigator.clipboard.writeText(addr);
+    setCopied(addr);
+    setTimeout(() => setCopied(null), 2000);
+  }, []);
+
+  // ── Chart data ──
+  const chartData = wallets
+    .filter(w => w.state)
+    .map(w => ({
+      name: w.label,
+      riskScore: w.state!.riskScore,
+      tokens: w.state!.tokenAccounts.length,
+      delegations: w.state!.totalDelegations,
+      suspicious: w.state!.suspiciousTokenCount,
+      alerts: w.state!.alerts.length,
+    }));
+
+  const scannedCount = wallets.filter(w => w.state).length;
+
+  return (
+    <div className="glass-card p-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-pyth-cyan" />
+          <h2 className="font-mono text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
+            Multi-Wallet Comparison
+          </h2>
+          <InfoTooltip
+            title="Wallet Risk Comparison"
+            content="Compare security and risk profiles across multiple Solana wallets. Add any wallet address to scan its SPL token accounts, delegations, and potential threats. Useful for monitoring team wallets, DAO treasuries, or tracking suspicious addresses."
+          />
+          {wallets.length > 0 && (
+            <span className="font-mono text-[9px] px-1.5 py-0.5 rounded-full bg-pyth-cyan/10 text-pyth-cyan">
+              {wallets.length} wallet{wallets.length !== 1 ? 's' : ''}
+            </span>
+          )}
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="ml-auto sm:ml-0 p-1 rounded hover:bg-pyth-surface/50 text-pyth-text-muted"
+          >
+            {isCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+          </button>
+        </div>
+
+        {!isCollapsed && wallets.length > 0 && (
+          <button
+            onClick={scanAll}
+            className="flex items-center gap-1 font-mono text-[10px] px-2 py-1 rounded
+              bg-pyth-cyan/10 border border-pyth-cyan/20 text-pyth-cyan
+              hover:bg-pyth-cyan/20 transition-all"
+          >
+            <RefreshCw className="w-3 h-3" />
+            Scan All
+          </button>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {!isCollapsed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden"
+          >
+            {/* Add wallet input */}
+            <div className="flex flex-col sm:flex-row gap-2 mb-3">
+              <input
+                type="text"
+                value={newAddress}
+                onChange={e => setNewAddress(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddWallet()}
+                placeholder="Paste Solana wallet address..."
+                className="flex-1 font-mono text-[10px] bg-pyth-surface border border-pyth-border rounded px-3 py-2 
+                  text-pyth-text placeholder:text-pyth-text-muted/40 outline-none focus:border-pyth-cyan/30"
+              />
+              <input
+                type="text"
+                value={newLabel}
+                onChange={e => setNewLabel(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddWallet()}
+                placeholder="Label (optional)"
+                className="w-full sm:w-32 font-mono text-[10px] bg-pyth-surface border border-pyth-border rounded px-3 py-2 
+                  text-pyth-text placeholder:text-pyth-text-muted/40 outline-none focus:border-pyth-cyan/30"
+              />
+              <button
+                onClick={handleAddWallet}
+                disabled={!newAddress.trim() || newAddress.trim().length < 32}
+                className="flex items-center justify-center gap-1 font-mono text-[10px] px-3 py-2 rounded
+                  bg-pyth-cyan/10 border border-pyth-cyan/20 text-pyth-cyan
+                  hover:bg-pyth-cyan/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              >
+                <Plus className="w-3 h-3" />
+                Add
+              </button>
+            </div>
+
+            {/* Comparison chart */}
+            {chartData.length >= 2 && (
+              <div className="mb-4">
+                <h3 className="font-mono text-[10px] text-pyth-text-muted mb-2 uppercase">
+                  Risk Score Comparison
+                </h3>
+                <div className="h-40">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 9, fill: '#8A8EA0' }}
+                        tickLine={false}
+                        axisLine={{ stroke: 'rgba(171,135,255,0.1)' }}
+                      />
+                      <YAxis
+                        domain={[0, 100]}
+                        tick={{ fontSize: 9, fill: '#8A8EA0' }}
+                        tickLine={false}
+                        axisLine={{ stroke: 'rgba(171,135,255,0.1)' }}
+                      />
+                      <Tooltip content={<ComparisonTooltip />} />
+                      <Bar dataKey="riskScore" name="Risk Score" radius={[4, 4, 0, 0]}>
+                        {chartData.map((entry, i) => {
+                          const score = entry.riskScore;
+                          const color = score >= 80 ? '#00FFA3' : score >= 60 ? '#FFD166' : score >= 35 ? '#FF8C42' : '#FF4162';
+                          return <Cell key={i} fill={color} />;
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Wallet cards */}
+            {wallets.length === 0 ? (
+              <div className="text-center py-8">
+                <Search className="w-8 h-8 text-pyth-text-muted/20 mx-auto mb-2" />
+                <p className="font-mono text-xs text-pyth-text-muted">No wallets added yet</p>
+                <p className="font-mono text-[10px] text-pyth-text-muted/60 mt-1">
+                  Add Solana wallet addresses above to compare risk profiles
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {wallets.map(wallet => (
+                  <WalletCard
+                    key={wallet.address}
+                    wallet={wallet}
+                    onScan={() => scanWallet(wallet.address)}
+                    onRemove={() => handleRemoveWallet(wallet.address)}
+                    onCopy={() => handleCopy(wallet.address)}
+                    isCopied={copied === wallet.address}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Summary stats */}
+            {scannedCount >= 2 && (
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  {
+                    label: 'Avg Risk Score',
+                    value: (wallets.filter(w => w.state).reduce((s, w) => s + (w.state?.riskScore || 0), 0) / scannedCount).toFixed(0),
+                    color: 'text-pyth-purple',
+                  },
+                  {
+                    label: 'Total Tokens',
+                    value: wallets.filter(w => w.state).reduce((s, w) => s + (w.state?.tokenAccounts.length || 0), 0).toString(),
+                    color: 'text-pyth-cyan',
+                  },
+                  {
+                    label: 'Active Delegations',
+                    value: wallets.filter(w => w.state).reduce((s, w) => s + (w.state?.totalDelegations || 0), 0).toString(),
+                    color: 'text-pyth-yellow',
+                  },
+                  {
+                    label: 'Total Alerts',
+                    value: wallets.filter(w => w.state).reduce((s, w) => s + (w.state?.alerts.length || 0), 0).toString(),
+                    color: 'text-pyth-red',
+                  },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="bg-pyth-surface/40 rounded-lg p-2 text-center">
+                    <div className="font-mono text-[9px] text-pyth-text-muted uppercase">{label}</div>
+                    <div className={`font-mono text-sm font-bold ${color}`}>{value}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+
+// ── Wallet Card ──
+
+function WalletCard({
+  wallet,
+  onScan,
+  onRemove,
+  onCopy,
+  isCopied,
+}: {
+  wallet: WalletProfile;
+  onScan: () => void;
+  onRemove: () => void;
+  onCopy: () => void;
+  isCopied: boolean;
+}) {
+  const { state, isScanning, error, solBalance } = wallet;
+  const riskLevel: AirdropRisk = state
+    ? state.riskScore >= 80 ? 'safe'
+    : state.riskScore >= 60 ? 'caution'
+    : state.riskScore >= 35 ? 'suspicious'
+    : 'dangerous'
+    : 'safe';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      className={`rounded-lg border p-3 transition-all ${
+        state
+          ? riskLevel === 'safe' 
+            ? 'bg-pyth-surface/50 border-pyth-green/20' 
+            : riskLevel === 'caution'
+            ? 'bg-pyth-surface/50 border-pyth-yellow/20'
+            : 'bg-pyth-surface/50 border-pyth-red/20'
+          : 'bg-pyth-surface/30 border-pyth-border'
+      }`}
+    >
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-2">
+        <span className="font-mono text-xs font-bold text-pyth-text truncate">{wallet.label}</span>
+        <div className="ml-auto flex items-center gap-1">
+          <button onClick={onCopy} className="p-1 rounded text-pyth-text-muted hover:text-pyth-text transition-colors" title="Copy address">
+            {isCopied ? <CheckCircle2 className="w-3 h-3 text-pyth-green" /> : <Copy className="w-3 h-3" />}
+          </button>
+          <button onClick={onRemove} className="p-1 rounded text-pyth-text-muted hover:text-pyth-red transition-colors" title="Remove">
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+
+      {/* Address */}
+      <div className="font-mono text-[10px] text-pyth-text-muted mb-2 truncate">
+        {shortenAddress(wallet.address)}
+      </div>
+
+      {/* Scan state */}
+      {isScanning ? (
+        <div className="flex items-center justify-center py-4 gap-2">
+          <div className="w-4 h-4 border-2 border-pyth-cyan/30 border-t-pyth-cyan rounded-full animate-spin" />
+          <span className="font-mono text-[10px] text-pyth-text-muted">Scanning...</span>
+        </div>
+      ) : error ? (
+        <div className="text-center py-3">
+          <AlertTriangle className="w-4 h-4 text-pyth-red mx-auto mb-1" />
+          <p className="font-mono text-[9px] text-pyth-red">{error}</p>
+          <button onClick={onScan} className="font-mono text-[9px] text-pyth-cyan mt-1 hover:underline">Retry</button>
+        </div>
+      ) : state ? (
+        <div>
+          {/* Risk score */}
+          <div className="flex items-center gap-2 mb-2">
+            <div className="flex-1 h-2 bg-pyth-surface rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${state.riskScore}%`,
+                  backgroundColor: airdropRiskColor(riskLevel),
+                }}
+              />
+            </div>
+            <span className="font-mono text-xs font-bold" style={{ color: airdropRiskColor(riskLevel) }}>
+              {state.riskScore}
+            </span>
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-2 gap-1.5 text-center">
+            <div className="bg-pyth-surface/30 rounded p-1.5">
+              <div className="font-mono text-[8px] text-pyth-text-muted uppercase">SOL</div>
+              <div className="font-mono text-[10px] text-pyth-text font-bold">
+                {solBalance !== undefined ? solBalance.toFixed(3) : '—'}
+              </div>
+            </div>
+            <div className="bg-pyth-surface/30 rounded p-1.5">
+              <div className="font-mono text-[8px] text-pyth-text-muted uppercase">Tokens</div>
+              <div className="font-mono text-[10px] text-pyth-text font-bold">{state.tokenAccounts.length}</div>
+            </div>
+            <div className="bg-pyth-surface/30 rounded p-1.5">
+              <div className="font-mono text-[8px] text-pyth-text-muted uppercase">Delegations</div>
+              <div className={`font-mono text-[10px] font-bold ${state.totalDelegations > 0 ? 'text-pyth-red' : 'text-pyth-green'}`}>
+                {state.totalDelegations}
+              </div>
+            </div>
+            <div className="bg-pyth-surface/30 rounded p-1.5">
+              <div className="font-mono text-[8px] text-pyth-text-muted uppercase">Alerts</div>
+              <div className={`font-mono text-[10px] font-bold ${state.alerts.length > 0 ? 'text-pyth-yellow' : 'text-pyth-green'}`}>
+                {state.alerts.length}
+              </div>
+            </div>
+          </div>
+
+          {/* Risk label */}
+          <div className="mt-2 flex items-center justify-between">
+            <span
+              className="font-mono text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+              style={{
+                backgroundColor: airdropRiskColor(riskLevel) + '20',
+                color: airdropRiskColor(riskLevel),
+              }}
+            >
+              {airdropRiskLabel(riskLevel)}
+            </span>
+            <span className="font-mono text-[8px] text-pyth-text-muted/60">
+              {state.lastScanTime > 0 ? new Date(state.lastScanTime).toLocaleTimeString() : ''}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="text-center py-3">
+          <Shield className="w-5 h-5 text-pyth-text-muted/20 mx-auto mb-1" />
+          <button
+            onClick={onScan}
+            className="font-mono text-[10px] px-3 py-1 rounded bg-pyth-cyan/10 border border-pyth-cyan/20 
+              text-pyth-cyan hover:bg-pyth-cyan/20 transition-all"
+          >
+            Scan Wallet
+          </button>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── Comparison Tooltip ──
+
+function ComparisonTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ value: number; payload: Record<string, number> }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="bg-pyth-surface/95 backdrop-blur-md border border-pyth-border rounded-lg p-2 shadow-xl">
+      <p className="font-mono text-[10px] text-pyth-text font-bold mb-1">{label}</p>
+      <div className="space-y-0.5">
+        <div className="font-mono text-[9px] text-pyth-text-muted">Risk Score: <span className="text-pyth-text font-bold">{d.riskScore}</span></div>
+        <div className="font-mono text-[9px] text-pyth-text-muted">Tokens: <span className="text-pyth-text">{d.tokens}</span></div>
+        <div className="font-mono text-[9px] text-pyth-text-muted">Delegations: <span className="text-pyth-text">{d.delegations}</span></div>
+        <div className="font-mono text-[9px] text-pyth-text-muted">Alerts: <span className="text-pyth-text">{d.alerts}</span></div>
+      </div>
+    </div>
+  );
+}
