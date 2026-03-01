@@ -158,7 +158,9 @@ function getAgentResponse(input: string, feeds: PriceFeed[], positions: Position
   return generateDefaultResponse(feeds, positions);
 }
 
-export default function AgentChat({ feeds = [], positions = [] }: AgentChatProps) {
+import { memo } from 'react';
+
+export default memo(function AgentChat({ feeds = [], positions = [] }: AgentChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
@@ -437,4 +439,4 @@ Try: *"What's the risk if rates rise?"* or *"Analyze SOL position"*`,
       </div>
     </div>
   );
-}
+});

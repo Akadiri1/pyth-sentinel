@@ -24,7 +24,9 @@ interface WalletSecurityPanelProps {
   onRescan: () => void;
 }
 
-export default function WalletSecurityPanel({
+import { memo } from 'react';
+
+export default memo(function WalletSecurityPanel({
   security,
   analyses,
   isConnected,
@@ -318,7 +320,7 @@ export default function WalletSecurityPanel({
       </AnimatePresence>
     </div>
   );
-}
+});
 
 // ── Sub-components ──
 

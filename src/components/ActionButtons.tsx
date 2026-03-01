@@ -12,7 +12,9 @@ interface ActionButtonsProps {
   criticalPrice?: number;
 }
 
-export default function ActionButtons({ onShelter, onEntropyExit, onGuardianShield, isCritical, criticalAsset, criticalPrice }: ActionButtonsProps) {
+import { memo } from 'react';
+
+export default memo(function ActionButtons({ onShelter, onEntropyExit, onGuardianShield, isCritical, criticalAsset, criticalPrice }: ActionButtonsProps) {
   const [shelterLoading, setShelterLoading] = useState(false);
   const [entropyLoading, setEntropyLoading] = useState(false);
   const [guardianLoading, setGuardianLoading] = useState(false);
@@ -36,7 +38,7 @@ export default function ActionButtons({ onShelter, onEntropyExit, onGuardianShie
   };
 
   return (
-    <div className="glass-card p-3 sm:p-4">
+    <div className="glass-card p-3 sm:p-4 flex flex-col h-full">
       <div className="flex items-center gap-2 mb-2">
         <Lock className="w-3.5 h-3.5 text-pyth-red" />
         <h2 className="font-mono text-[10px] sm:text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
@@ -44,7 +46,7 @@ export default function ActionButtons({ onShelter, onEntropyExit, onGuardianShie
         </h2>
       </div>
 
-      <div className="space-y-2">
+      <div className="flex-1 flex flex-col justify-between space-y-2">
         {/* Critical Agent Override Box */}
         <AnimatePresence>
           {isCritical && (
@@ -169,4 +171,4 @@ export default function ActionButtons({ onShelter, onEntropyExit, onGuardianShie
       </div>
     </div>
   );
-}
+});

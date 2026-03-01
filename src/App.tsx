@@ -2,7 +2,7 @@
 // Built for Pyth Playground Community Hackathon
 // Uses Pyth Pro (real-time feeds) + Pyth Entropy (randomized execution)
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import Header from './components/Header';
@@ -39,29 +39,33 @@ function AppInner() {
   const [reportOpen, setReportOpen] = useState(false);
   const [securityModalOpen, setSecurityModalOpen] = useState(false);
 
-  // Simulate fluctuating latency indicator
+  // Simulate fluctuating latency indicator (slow interval to reduce re-renders)
   useEffect(() => {
     const timer = setInterval(() => {
       setLatency(0.5 + Math.random() * 1.2);
-    }, 2000);
+    }, 5000);
     return () => clearInterval(timer);
   }, []);
 
-  const handleShelter = () => {
+  const handleShelter = useCallback(() => {
     shelterAll();
-  };
+  }, [shelterAll]);
 
-  const handleEntropyExit = () => {
+  const handleEntropyExit = useCallback(() => {
     entropyExit();
-  };
+  }, [entropyExit]);
 
-  const handleGuardianShield = () => {
+  const handleGuardianShield = useCallback(() => {
     guardianShield();
-  };
+  }, [guardianShield]);
 
   // Find the critical position info for the override box
-  const criticalPosition = positions.find(p => p.healthFactor < 1.0);
+  const criticalPosition = useMemo(() => positions.find(p => p.healthFactor < 1.0), [positions]);
   const criticalPrice = criticalPosition?.currentPrice;
+
+  const closeReport = useCallback(() => setReportOpen(false), []);
+  const closeSecurityModal = useCallback(() => setSecurityModalOpen(false), []);
+  const dismissAllAndClose = useCallback(() => { dismissAll(); setSecurityModalOpen(false); }, [dismissAll]);
 
   // Auto-open security modal on critical alerts
   const criticalAlerts = security.alerts.filter(a => a.level === 'critical' && !a.dismissed);
@@ -118,7 +122,7 @@ function AppInner() {
 
           {/* Center: Risk Gauge + Actions */}
           <motion.div
-            className="lg:col-span-3 space-y-4"
+            className="lg:col-span-3 flex flex-col gap-4"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
@@ -126,14 +130,16 @@ function AppInner() {
             <ErrorBoundary>
               <RiskGauge metrics={riskMetrics} />
             </ErrorBoundary>
-            <ActionButtons
-              onShelter={handleShelter}
-              onEntropyExit={handleEntropyExit}
-              onGuardianShield={handleGuardianShield}
-              isCritical={isCritical}
-              criticalAsset={criticalPosition?.asset}
-              criticalPrice={criticalPrice}
-            />
+            <div className="flex-1 flex flex-col">
+              <ActionButtons
+                onShelter={handleShelter}
+                onEntropyExit={handleEntropyExit}
+                onGuardianShield={handleGuardianShield}
+                isCritical={isCritical}
+                criticalAsset={criticalPosition?.asset}
+                criticalPrice={criticalPrice}
+              />
+            </div>
           </motion.div>
 
           {/* Right: Agent Chat */}
@@ -274,16 +280,16 @@ function AppInner() {
         riskMetrics={riskMetrics}
         simulations={simulations}
         isOpen={reportOpen}
-        onClose={() => setReportOpen(false)}
+        onClose={closeReport}
       />
 
       {/* Security Alert Modal */}
       <SecurityAlertModal
         alerts={security.alerts}
         isOpen={securityModalOpen}
-        onClose={() => setSecurityModalOpen(false)}
+        onClose={closeSecurityModal}
         onDismiss={dismissAlert}
-        onDismissAll={() => { dismissAll(); setSecurityModalOpen(false); }}
+        onDismissAll={dismissAllAndClose}
       />
     </div>
   );

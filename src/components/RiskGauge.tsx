@@ -8,7 +8,9 @@ interface RiskGaugeProps {
   metrics: RiskMetrics;
 }
 
-export default function RiskGauge({ metrics }: RiskGaugeProps) {
+import { memo } from 'react';
+
+export default memo(function RiskGauge({ metrics }: RiskGaugeProps) {
   const score = Math.round(metrics.overallScore);
   const riskLevel = score <= 30 ? 'LOW' : score <= 55 ? 'MODERATE' : score <= 75 ? 'ELEVATED' : 'CRITICAL';
   const riskColor =
@@ -95,7 +97,7 @@ export default function RiskGauge({ metrics }: RiskGaugeProps) {
       </div>
     </div>
   );
-}
+});
 
 function SubMetric({ label, value, inverted = false }: { label: string; value: number; inverted?: boolean }) {
   const pct = Math.min(100, Math.max(0, value));

@@ -19,7 +19,9 @@ interface SecurityAlertModalProps {
   onDismissAll: () => void;
 }
 
-export default function SecurityAlertModal({
+import { memo } from 'react';
+
+export default memo(function SecurityAlertModal({
   alerts,
   isOpen,
   onClose,
@@ -220,4 +222,4 @@ export default function SecurityAlertModal({
       )}
     </AnimatePresence>
   );
-}
+});

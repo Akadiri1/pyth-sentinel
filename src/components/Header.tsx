@@ -11,7 +11,9 @@ interface HeaderProps {
   dataSource: 'live' | 'mock';
 }
 
-export default function Header({ agentState, latency, connectionStatus, dataSource }: HeaderProps) {
+import { memo } from 'react';
+
+export default memo(function Header({ agentState, latency, connectionStatus, dataSource }: HeaderProps) {
   const statusColors = {
     monitoring: 'text-pyth-green',
     analyzing: 'text-pyth-cyan',
@@ -119,4 +121,4 @@ export default function Header({ agentState, latency, connectionStatus, dataSour
       </div>
     </header>
   );
-}
+});

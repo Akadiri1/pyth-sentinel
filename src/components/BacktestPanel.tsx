@@ -21,7 +21,9 @@ const severityColors = {
   extreme: { bg: 'bg-pyth-red/10', text: 'text-pyth-red', border: 'border-pyth-red/20' },
 };
 
-export default function BacktestPanel({ feeds }: BacktestPanelProps) {
+import { memo } from 'react';
+
+export default memo(function BacktestPanel({ feeds }: BacktestPanelProps) {
   const [selectedEvent, setSelectedEvent] = useState<HistoricalEvent>(HISTORICAL_EVENTS[0]);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -362,4 +364,4 @@ export default function BacktestPanel({ feeds }: BacktestPanelProps) {
       )}
     </div>
   );
-}
+});

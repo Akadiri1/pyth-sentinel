@@ -9,7 +9,9 @@ interface PositionsPanelProps {
   isSheltered?: boolean;
 }
 
-export default function PositionsPanel({ positions, isSheltered }: PositionsPanelProps) {
+import { memo } from 'react';
+
+export default memo(function PositionsPanel({ positions, isSheltered }: PositionsPanelProps) {
   const totalPnl = positions.reduce((sum, p) => sum + p.pnl, 0);
   const totalValue = positions.reduce((sum, p) => sum + p.size * p.currentPrice, 0);
 
@@ -68,7 +70,7 @@ export default function PositionsPanel({ positions, isSheltered }: PositionsPane
       </div>
     </div>
   );
-}
+});
 
 function PositionRow({ position }: { position: Position }) {
   const isProfit = position.pnl >= 0;

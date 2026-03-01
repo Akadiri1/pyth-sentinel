@@ -32,7 +32,9 @@ interface AirdropGuardPanelProps {
   onRevokeAll: () => void;
 }
 
-export default function AirdropGuardPanel({
+import { memo } from 'react';
+
+export default memo(function AirdropGuardPanel({
   guard,
   isConnected,
   walletAddress,
@@ -376,7 +378,7 @@ export default function AirdropGuardPanel({
       </AnimatePresence>
     </div>
   );
-}
+});
 
 // ── Sub-Components ──
 

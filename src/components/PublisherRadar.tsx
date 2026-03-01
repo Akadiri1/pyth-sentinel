@@ -40,7 +40,9 @@ const tierColors: Record<string, string> = {
   defi: 'text-pyth-yellow bg-pyth-yellow/10',
 };
 
-export default function PublisherRadar({ radar }: Props) {
+import { memo } from 'react';
+
+export default memo(function PublisherRadar({ radar }: Props) {
   const {
     publishers,
     feedMetrics,
@@ -209,7 +211,7 @@ export default function PublisherRadar({ radar }: Props) {
       )}
     </div>
   );
-}
+});
 
 // ══════════════════════════════════════════════════════════
 // ── Publisher Table Sub-Component

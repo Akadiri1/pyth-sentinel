@@ -26,7 +26,9 @@ const sourceColors: Record<string, string> = {
   'executor': 'text-pyth-lavender',
 };
 
-export default function ReasoningConsole({ logs }: ReasoningConsoleProps) {
+import { memo } from 'react';
+
+export default memo(function ReasoningConsole({ logs }: ReasoningConsoleProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -122,4 +124,4 @@ export default function ReasoningConsole({ logs }: ReasoningConsoleProps) {
       </div>
     </div>
   );
-}
+});

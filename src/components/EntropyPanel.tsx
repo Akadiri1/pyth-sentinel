@@ -31,7 +31,9 @@ const connectionLabels: Record<EntropyConnectionStatus, string> = {
   error: 'ERROR',
 };
 
-export default function EntropyPanel({ simulations, entropyStatus, latestSeed }: EntropyPanelProps) {
+import { memo } from 'react';
+
+export default memo(function EntropyPanel({ simulations, entropyStatus, latestSeed }: EntropyPanelProps) {
   return (
     <div className="glass-card p-4">
       {/* Header with live Fortuna status */}
@@ -136,4 +138,4 @@ export default function EntropyPanel({ simulations, entropyStatus, latestSeed }:
       </div>
     </div>
   );
-}
+});

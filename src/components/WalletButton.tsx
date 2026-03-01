@@ -4,7 +4,7 @@ import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wallet, LogOut, Copy, Check, ExternalLink } from 'lucide-react';
+import { Wallet, LogOut, Copy, Check, ExternalLink, RefreshCw } from 'lucide-react';
 
 export default function WalletButton() {
   const { publicKey, connected, connect, disconnect, connecting, wallet, select, wallets } = useWallet();
@@ -188,6 +188,28 @@ export default function WalletButton() {
                 <ExternalLink className="w-3.5 h-3.5" />
                 View on Solscan
               </a>
+              <button
+                onClick={async () => {
+                  setShowDropdown(false);
+                  await disconnect();
+                  // After disconnect, select next available wallet or re-trigger connect
+                  if (wallets.length > 1) {
+                    const currentName = wallet?.adapter.name;
+                    const other = wallets.find(w => w.adapter.name !== currentName) || wallets[0];
+                    select(other.adapter.name);
+                    setTimeout(() => connect().catch(() => {}), 100);
+                  } else if (wallets.length === 1) {
+                    select(wallets[0].adapter.name);
+                    setTimeout(() => connect().catch(() => {}), 100);
+                  }
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg
+                  hover:bg-pyth-purple/10 transition-colors text-pyth-purple
+                  font-mono text-[11px]"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Switch Wallet
+              </button>
               <button
                 onClick={() => {
                   disconnect();

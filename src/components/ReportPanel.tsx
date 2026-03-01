@@ -377,7 +377,9 @@ function downloadFile(content: string, filename: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
-export default function ReportPanel({ feeds, positions, riskMetrics, simulations, isOpen, onClose }: ReportPanelProps) {
+import { memo } from 'react';
+
+export default memo(function ReportPanel({ feeds, positions, riskMetrics, simulations, isOpen, onClose }: ReportPanelProps) {
   const [generating, setGenerating] = useState<string | null>(null);
 
   const dateSuffix = new Date().toISOString().slice(0, 10);
@@ -574,4 +576,4 @@ export default function ReportPanel({ feeds, positions, riskMetrics, simulations
       )}
     </AnimatePresence>
   );
-}
+});

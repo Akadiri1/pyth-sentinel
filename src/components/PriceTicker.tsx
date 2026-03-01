@@ -25,7 +25,9 @@ const categoryColors: Record<string, string> = {
   rates: 'text-pyth-lavender',
 };
 
-export default function PriceTicker({ feeds, updatedId, isLive = false }: PriceTickerProps) {
+import { memo } from 'react';
+
+export default memo(function PriceTicker({ feeds, updatedId, isLive = false }: PriceTickerProps) {
   return (
     <div className="glass-card p-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-3">
@@ -47,7 +49,7 @@ export default function PriceTicker({ feeds, updatedId, isLive = false }: PriceT
       </div>
     </div>
   );
-}
+});
 
 function PriceCard({ feed, isUpdating }: { feed: PriceFeed; isUpdating: boolean }) {
   const isPositive = feed.changePercent24h >= 0;
