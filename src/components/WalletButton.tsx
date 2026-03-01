@@ -191,6 +191,7 @@ export default function WalletButton() {
               <button
                 onClick={() => {
                   setShowDropdown(false);
+                  localStorage.removeItem('walletName');
                   disconnect();
                 }}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg
@@ -202,6 +203,7 @@ export default function WalletButton() {
               </button>
               <button
                 onClick={() => {
+                  localStorage.removeItem('walletName');
                   disconnect();
                   setShowDropdown(false);
                 }}

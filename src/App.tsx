@@ -107,10 +107,10 @@ function AppInner() {
         </motion.div>
 
         {/* Main Grid: Console + Risk + Chat */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           {/* Left: Reasoning Console */}
           <motion.div
-            className="lg:col-span-5 flex flex-col"
+            className="lg:col-span-5"
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.5, delay: 0.2 }}
@@ -120,9 +120,10 @@ function AppInner() {
             </ErrorBoundary>
           </motion.div>
 
-          {/* Center: Risk Gauge + Actions */}
+          {/* Center: Risk Gauge + Actions — stretches to match row height */}
           <motion.div
             className="lg:col-span-3 flex flex-col gap-4"
+            style={{ minHeight: 0 }}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
@@ -130,15 +131,17 @@ function AppInner() {
             <ErrorBoundary>
               <RiskGauge metrics={riskMetrics} />
             </ErrorBoundary>
-            <div className="flex-1 flex flex-col">
-              <ActionButtons
-                onShelter={handleShelter}
-                onEntropyExit={handleEntropyExit}
-                onGuardianShield={handleGuardianShield}
-                isCritical={isCritical}
-                criticalAsset={criticalPosition?.asset}
-                criticalPrice={criticalPrice}
-              />
+            <div className="flex-1 flex flex-col min-h-0">
+              <ErrorBoundary>
+                <ActionButtons
+                  onShelter={handleShelter}
+                  onEntropyExit={handleEntropyExit}
+                  onGuardianShield={handleGuardianShield}
+                  isCritical={isCritical}
+                  criticalAsset={criticalPosition?.asset}
+                  criticalPrice={criticalPrice}
+                />
+              </ErrorBoundary>
             </div>
           </motion.div>
 
