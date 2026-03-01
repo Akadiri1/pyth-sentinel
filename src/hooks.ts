@@ -1127,29 +1127,34 @@ export function useAirdropGuard(
   const { publicKey, connected, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const [state, setState] = useState<AirdropGuardState>(EMPTY_AIRDROP_STATE);
+  const [overrideAddress, setOverrideAddress] = useState<string>('');
   const addLogRef = useRef(addLog);
   const prevAlertIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => { addLogRef.current = addLog; }, [addLog]);
 
-  // Reset on disconnect
+  // Determine effective address: override takes priority, then connected wallet
+  const effectiveAddress = overrideAddress || (publicKey?.toBase58() ?? '');
+  const isActive = !!effectiveAddress;
+
+  // Reset on disconnect (only if no override)
   useEffect(() => {
-    if (!connected || !publicKey) {
+    if (!overrideAddress && (!connected || !publicKey)) {
       setState(EMPTY_AIRDROP_STATE);
       prevAlertIdsRef.current = new Set();
     }
-  }, [connected, publicKey]);
+  }, [connected, publicKey, overrideAddress]);
 
   // Core scan
   const runScan = useCallback(async () => {
-    if (!publicKey || !connected) return;
+    if (!effectiveAddress) return;
 
     setState(prev => ({ ...prev, isScanning: true }));
 
     try {
       const { accounts, alerts } = await scanTokenAccounts(
         connection,
-        publicKey.toBase58(),
+        effectiveAddress,
       );
 
       const { score, level } = computeAirdropRiskScore(accounts, alerts);
@@ -1200,11 +1205,11 @@ export function useAirdropGuard(
       console.warn('[AirdropGuard] Scan failed:', err);
       setState(prev => ({ ...prev, isScanning: false }));
     }
-  }, [publicKey, connected, connection]);
+  }, [effectiveAddress, connected, connection]);
 
   // Initial scan + polling
   useEffect(() => {
-    if (!publicKey || !connected) return;
+    if (!effectiveAddress) return;
 
     // Request notification permission
     if ('Notification' in window && Notification.permission === 'default') {
@@ -1214,7 +1219,7 @@ export function useAirdropGuard(
     runScan();
     const timer = setInterval(runScan, pollInterval);
     return () => clearInterval(timer);
-  }, [publicKey, connected, runScan, pollInterval]);
+  }, [effectiveAddress, runScan, pollInterval]);
 
   // Revoke a single delegation
   const revokeDelegation = useCallback(async (tokenAccountAddress: string) => {
@@ -1291,5 +1296,8 @@ export function useAirdropGuard(
     rescan: runScan,
     revokeDelegation,
     revokeAllDelegations,
+    overrideAddress,
+    setOverrideAddress,
+    effectiveAddress,
   };
 }

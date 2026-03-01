@@ -70,21 +70,29 @@ const KNOWN_SCAM_MINTS = new Set([
   'MaliciousAirdrop5555555555555555555555555',
 ]);
 
-// Well-known legitimate token mints (safe list)
-const TRUSTED_MINTS = new Set([
-  'So11111111111111111111111111111111111111112',  // Wrapped SOL
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
-  'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3', // PYTH
-  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
-  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',  // JUP
-  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',  // mSOL
-  'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL',  // JTO
-  '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs', // WETH
-  'rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof',  // RNDR
-  'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1',  // bSOL
-  'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm', // WIF
-]);
+// Well-known legitimate token mints (safe list) with metadata
+const TRUSTED_MINTS_META: Record<string, { symbol: string; name: string }> = {
+  'So11111111111111111111111111111111111111112':  { symbol: 'wSOL', name: 'Wrapped SOL' },
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { symbol: 'USDC', name: 'USD Coin' },
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { symbol: 'USDT', name: 'Tether USD' },
+  'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3': { symbol: 'PYTH', name: 'Pyth Network' },
+  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': { symbol: 'BONK', name: 'Bonk' },
+  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN':  { symbol: 'JUP', name: 'Jupiter' },
+  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So':  { symbol: 'mSOL', name: 'Marinade SOL' },
+  'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL':  { symbol: 'JTO', name: 'Jito' },
+  '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs': { symbol: 'WETH', name: 'Wrapped ETH' },
+  'rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof':  { symbol: 'RNDR', name: 'Render' },
+  'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1':  { symbol: 'bSOL', name: 'BlazeStake SOL' },
+  'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm': { symbol: 'WIF', name: 'dogwifhat' },
+  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R': { symbol: 'RAY', name: 'Raydium' },
+  '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6k8FHGhQjfT': { symbol: 'ORCA', name: 'Orca' },
+  'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt':  { symbol: 'SRM', name: 'Serum' },
+  'MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey':  { symbol: 'MNDE', name: 'Marinade' },
+  'hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux':  { symbol: 'HNT', name: 'Helium' },
+  '85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ': { symbol: 'W', name: 'Wormhole' },
+  'WENWENvqqNya429ubCdR81ZmD69brwQaaBYY6p91oHk':   { symbol: 'WEN', name: 'Wen' },
+};
+const TRUSTED_MINTS = new Set(Object.keys(TRUSTED_MINTS_META));
 
 // Known drainer program IDs (malicious programs that steal funds)
 const KNOWN_DRAINER_PROGRAMS = new Set([
@@ -136,11 +144,14 @@ export async function scanTokenAccounts(
   const now = Date.now();
 
   try {
-    // Fetch all SPL token accounts owned by this wallet
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-      pubkey,
-      { programId: TOKEN_PROGRAM_ID },
-    );
+    // Fetch Jupiter metadata in parallel with token accounts
+    const [tokenAccounts, jupMap] = await Promise.all([
+      connection.getParsedTokenAccountsByOwner(
+        pubkey,
+        { programId: TOKEN_PROGRAM_ID },
+      ),
+      ensureJupiterTokenList(),
+    ]);
 
     for (const { pubkey: tokenPubkey, account } of tokenAccounts.value) {
       const parsed = account.data as ParsedAccountData;
@@ -219,6 +230,9 @@ export async function scanTokenAccounts(
         if (riskLevel === 'safe') riskLevel = 'caution';
       }
 
+      // Resolve token metadata (symbol / name)
+      const meta = resolveTokenMeta(mint, jupMap);
+
       accounts.push({
         mint,
         address: tokenPubkey.toBase58(),
@@ -230,6 +244,8 @@ export async function scanTokenAccounts(
         owner,
         riskLevel,
         riskReasons,
+        symbol: meta.symbol,
+        name: meta.name,
       });
     }
 
@@ -374,6 +390,63 @@ export function airdropRiskLabel(level: AirdropRisk): string {
     case 'suspicious': return 'SUSPICIOUS';
     case 'dangerous': return 'DANGEROUS';
   }
+}
+
+// ── Jupiter Token Metadata Cache ──
+
+interface JupiterTokenMeta {
+  symbol: string;
+  name: string;
+  logoURI?: string;
+}
+
+let jupiterTokenMap: Map<string, JupiterTokenMeta> | null = null;
+let jupiterFetchPromise: Promise<void> | null = null;
+
+/**
+ * Fetch the Jupiter token list once and cache it.
+ * Falls back gracefully if the fetch fails.
+ */
+async function ensureJupiterTokenList(): Promise<Map<string, JupiterTokenMeta>> {
+  if (jupiterTokenMap) return jupiterTokenMap;
+  if (jupiterFetchPromise) {
+    await jupiterFetchPromise;
+    return jupiterTokenMap ?? new Map();
+  }
+
+  jupiterFetchPromise = (async () => {
+    try {
+      // Use Jupiter's strict verified token list (smaller, faster)
+      const res = await fetch('https://token.jup.ag/strict');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const tokens: Array<{ address: string; symbol: string; name: string; logoURI?: string }> = await res.json();
+      jupiterTokenMap = new Map();
+      for (const t of tokens) {
+        jupiterTokenMap.set(t.address, { symbol: t.symbol, name: t.name, logoURI: t.logoURI });
+      }
+      console.log(`[AirdropGuard] Loaded ${jupiterTokenMap.size} tokens from Jupiter`);
+    } catch (err) {
+      console.warn('[AirdropGuard] Jupiter token list fetch failed, using local metadata only:', err);
+      jupiterTokenMap = new Map();
+    }
+  })();
+
+  await jupiterFetchPromise;
+  return jupiterTokenMap ?? new Map();
+}
+
+/**
+ * Resolve symbol & name for a mint address.
+ * Priority: trusted local map → Jupiter list → fallback "Unknown"
+ */
+function resolveTokenMeta(mint: string, jupMap: Map<string, JupiterTokenMeta>): { symbol: string; name: string } {
+  const trusted = TRUSTED_MINTS_META[mint];
+  if (trusted) return trusted;
+
+  const jup = jupMap.get(mint);
+  if (jup) return { symbol: jup.symbol, name: jup.name };
+
+  return { symbol: 'UNKNOWN', name: `Unknown Token (${shortenAddr(mint)})` };
 }
 
 // ── Utility ──

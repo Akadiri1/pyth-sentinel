@@ -33,7 +33,7 @@ function AppInner() {
   const { simulations, entropyStatus, latestSeed } = useLiveEntropy(feeds, positions);
   const publisherRadar = usePublisherRadar(feeds);
   const { security, analyses, dismissAlert, dismissAll, rescan } = useWalletSecurity(addLog);
-  const { guard, rescan: rescanAirdrop, revokeDelegation, revokeAllDelegations } = useAirdropGuard(addLog);
+  const { guard, rescan: rescanAirdrop, revokeDelegation, revokeAllDelegations, overrideAddress, setOverrideAddress } = useAirdropGuard(addLog);
   const { publicKey, connected } = useWallet();
   const [latency, setLatency] = useState(0.8);
   const [reportOpen, setReportOpen] = useState(false);
@@ -240,6 +240,8 @@ function AppInner() {
               guard={guard}
               isConnected={connected}
               walletAddress={publicKey?.toBase58()}
+              overrideAddress={overrideAddress}
+              onOverrideChange={setOverrideAddress}
               onRescan={rescanAirdrop}
               onRevokeDelegation={revokeDelegation}
               onRevokeAll={revokeAllDelegations}

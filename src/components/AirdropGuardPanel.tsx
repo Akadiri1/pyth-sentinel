@@ -27,6 +27,8 @@ interface AirdropGuardPanelProps {
   guard: AirdropGuardState;
   isConnected: boolean;
   walletAddress?: string;
+  overrideAddress: string;
+  onOverrideChange: (addr: string) => void;
   onRescan: () => void;
   onRevokeDelegation: (tokenAccount: string) => void;
   onRevokeAll: () => void;
@@ -38,13 +40,15 @@ export default memo(function AirdropGuardPanel({
   guard,
   isConnected,
   walletAddress,
+  overrideAddress,
+  onOverrideChange,
   onRescan,
   onRevokeDelegation,
   onRevokeAll,
 }: AirdropGuardPanelProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'tokens' | 'alerts'>('overview');
   const [expandedToken, setExpandedToken] = useState<string | null>(null);
-  const [showSafeTokens, setShowSafeTokens] = useState(false);
+  const [showSafeTokens, setShowSafeTokens] = useState(true);
 
   const dangerousAlerts = guard.alerts.filter(a => a.severity === 'dangerous');
   const suspiciousAlerts = guard.alerts.filter(a => a.severity === 'suspicious');
@@ -63,8 +67,13 @@ export default memo(function AirdropGuardPanel({
     : guard.riskScore >= 35 ? ShieldAlert
     : ShieldX;
 
-  // Not connected state
-  if (!isConnected) {
+  const isValidSolAddress = (addr: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr);
+  const hasOverride = overrideAddress.length > 0;
+  const isOverrideValid = hasOverride && isValidSolAddress(overrideAddress);
+  const scanning = isConnected || isOverrideValid;
+
+  // Not connected AND no override
+  if (!scanning) {
     return (
       <div className="glass-card p-6">
         <div className="flex items-center gap-2 mb-4">
@@ -73,16 +82,40 @@ export default memo(function AirdropGuardPanel({
             Airdrop Guard
           </h2>
         </div>
-        <div className="flex flex-col items-center justify-center py-8 text-center">
+        <div className="flex flex-col items-center justify-center py-4 text-center">
           <Lock className="w-10 h-10 text-pyth-text-muted/30 mb-3" />
           <p className="font-mono text-sm text-pyth-text-muted mb-1">
             Wallet Not Connected
           </p>
-          <p className="font-mono text-[10px] text-pyth-text-muted/60 max-w-xs">
-            Connect your Solana wallet to enable Airdrop Guard protection.
-            We'll scan your token accounts for malicious delegations, scam tokens,
-            and dangerous approvals that could drain your wallet.
+          <p className="font-mono text-[10px] text-pyth-text-muted/60 max-w-xs mb-3">
+            Connect your wallet or paste any Solana address below to scan.
           </p>
+          <div className="w-full max-w-xs">
+            <div className="flex gap-1">
+              <input
+                type="text"
+                value={overrideAddress}
+                onChange={e => onOverrideChange(e.target.value.trim())}
+                placeholder="Paste Solana wallet address..."
+                className="flex-1 px-2.5 py-1.5 rounded-lg bg-pyth-bg-secondary border border-pyth-border
+                  font-mono text-[10px] text-pyth-text placeholder:text-pyth-text-muted/40
+                  focus:outline-none focus:border-pyth-green/50 transition-colors"
+                spellCheck={false}
+              />
+              <button
+                onClick={onRescan}
+                disabled={!isValidSolAddress(overrideAddress)}
+                className="px-2.5 py-1.5 rounded-lg font-mono text-[10px] font-bold
+                  bg-pyth-green/10 border border-pyth-green/30 text-pyth-green
+                  hover:bg-pyth-green/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <Search className="w-3 h-3" />
+              </button>
+            </div>
+            {hasOverride && !isOverrideValid && (
+              <p className="font-mono text-[9px] text-red-400 mt-1">Invalid Solana address</p>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -140,6 +173,39 @@ export default memo(function AirdropGuardPanel({
         </div>
       </div>
 
+      {/* Paste Address Input */}
+      <div className="flex gap-1 mb-3">
+        <input
+          type="text"
+          value={overrideAddress}
+          onChange={e => onOverrideChange(e.target.value.trim())}
+          placeholder={walletAddress ? `Override: paste any address...` : 'Paste Solana wallet address...'}
+          className="flex-1 px-2.5 py-1.5 rounded-lg bg-pyth-bg-secondary/50 border border-pyth-border
+            font-mono text-[10px] text-pyth-text placeholder:text-pyth-text-muted/40
+            focus:outline-none focus:border-pyth-green/50 transition-colors"
+          spellCheck={false}
+        />
+        {hasOverride && (
+          <button
+            onClick={() => onOverrideChange('')}
+            className="px-1.5 py-1 rounded-lg font-mono text-[10px]
+              bg-pyth-bg-secondary/50 border border-pyth-border text-pyth-text-muted
+              hover:text-red-400 hover:border-red-400/30 transition-all"
+            title="Clear override — use connected wallet"
+          >
+            <XCircle className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+      {hasOverride && !isOverrideValid && (
+        <p className="font-mono text-[9px] text-red-400 mb-2">Invalid Solana address format</p>
+      )}
+      {hasOverride && isOverrideValid && (
+        <p className="font-mono text-[9px] text-pyth-green/70 mb-2">
+          Scanning: {overrideAddress.slice(0, 6)}...{overrideAddress.slice(-4)}
+        </p>
+      )}
+
       {/* Tabs */}
       <div className="flex gap-1 mb-4 border-b border-pyth-border pb-2">
         {(['overview', 'tokens', 'alerts'] as const).map(tab => (
@@ -158,9 +224,13 @@ export default memo(function AirdropGuardPanel({
                 {guard.alerts.length}
               </span>
             )}
-            {tab === 'tokens' && riskyTokens.length > 0 && (
-              <span className="ml-1 px-1 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 text-[8px]">
-                {riskyTokens.length}
+            {tab === 'tokens' && guard.tokenAccounts.length > 0 && (
+              <span className={`ml-1 px-1 py-0.5 rounded-full text-[8px] ${
+                riskyTokens.length > 0
+                  ? 'bg-yellow-500/20 text-yellow-400'
+                  : 'bg-pyth-green/20 text-pyth-green'
+              }`}>
+                {guard.tokenAccounts.length}
               </span>
             )}
           </button>
@@ -316,9 +386,10 @@ export default memo(function AirdropGuardPanel({
             {/* Toggle safe tokens */}
             <div className="flex items-center justify-between mb-2">
               <p className="font-mono text-[10px] text-pyth-text-muted">
-                {riskyTokens.length > 0
-                  ? `${riskyTokens.length} token${riskyTokens.length > 1 ? 's' : ''} need attention`
-                  : 'All tokens look safe'}
+                {guard.tokenAccounts.length} token{guard.tokenAccounts.length !== 1 ? 's' : ''} found
+                {riskyTokens.length > 0 && (
+                  <span className="text-yellow-400"> · {riskyTokens.length} need attention</span>
+                )}
               </p>
               <button
                 onClick={() => setShowSafeTokens(!showSafeTokens)}
@@ -326,14 +397,29 @@ export default memo(function AirdropGuardPanel({
                   hover:text-pyth-text-dim transition-colors"
               >
                 {showSafeTokens ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                {showSafeTokens ? 'Hide safe' : `Show all (${safeTokens.length} safe)`}
+                {showSafeTokens ? 'Risky only' : `Show all (${guard.tokenAccounts.length})`}
               </button>
             </div>
 
             {displayTokens.length === 0 && (
               <div className="text-center py-6">
-                <CheckCircle2 className="w-8 h-8 text-pyth-green/30 mx-auto mb-2" />
-                <p className="font-mono text-xs text-pyth-text-muted">No risky tokens found</p>
+                {guard.tokenAccounts.length === 0 ? (
+                  <>
+                    <Wallet className="w-8 h-8 text-pyth-text-muted/30 mx-auto mb-2" />
+                    <p className="font-mono text-xs text-pyth-text-muted">No SPL token accounts found</p>
+                    <p className="font-mono text-[9px] text-pyth-text-muted/60 mt-1">
+                      This wallet has no SPL tokens on mainnet, or the RPC failed to fetch them.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-8 h-8 text-pyth-green/30 mx-auto mb-2" />
+                    <p className="font-mono text-xs text-pyth-text-muted">No risky tokens found</p>
+                    <p className="font-mono text-[9px] text-pyth-text-muted/60 mt-1">
+                      All {safeTokens.length} tokens are verified safe. Click "Show all" to see them.
+                    </p>
+                  </>
+                )}
               </div>
             )}
 
@@ -432,24 +518,38 @@ function TokenCard({
         onClick={onToggle}
         className="w-full flex items-center justify-between p-3 hover:bg-white/[0.02] transition-colors"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <div
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ backgroundColor: riskColor }}
+            className="w-2.5 h-2.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-transparent"
+            style={{ backgroundColor: riskColor, boxShadow: `0 0 6px ${riskColor}40` }}
           />
           <div className="text-left">
-            <p className="font-mono text-xs text-pyth-text">
-              {shortenAirdropAddress(token.mint)}
-            </p>
-            <p className="font-mono text-[9px] text-pyth-text-muted">
-              Balance: {token.balance.toLocaleString()} · {airdropRiskLabel(token.riskLevel)}
+            <div className="flex items-center gap-1.5">
+              <p className="font-mono text-xs font-bold text-pyth-text">
+                {token.symbol || shortenAirdropAddress(token.mint)}
+              </p>
+              <span
+                className="px-1.5 py-0 rounded-full font-mono text-[7px] font-bold uppercase tracking-wider"
+                style={{
+                  color: riskColor,
+                  backgroundColor: `${riskColor}15`,
+                  border: `1px solid ${riskColor}30`,
+                }}
+              >
+                {airdropRiskLabel(token.riskLevel)}
+              </span>
+            </div>
+            <p className="font-mono text-[9px] text-pyth-text-muted mt-0.5">
+              {token.name || shortenAirdropAddress(token.mint)}
+              {' · '}
+              <span className="text-pyth-text-dim">{token.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {token.delegate && (
             <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full
-              bg-red-500/20 text-red-400 font-mono text-[8px] font-bold">
+              bg-red-500/20 text-red-400 font-mono text-[8px] font-bold animate-pulse">
               <Unlock className="w-2.5 h-2.5" />
               DELEGATED
             </span>
