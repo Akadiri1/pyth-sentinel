@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { ShieldOff, Shuffle, Lock, Loader2, Shield, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import InfoTooltip from './InfoTooltip';
 
 interface ActionButtonsProps {
   onShelter: () => void;
@@ -44,6 +45,10 @@ export default memo(function ActionButtons({ onShelter, onEntropyExit, onGuardia
         <h2 className="font-mono text-[10px] sm:text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
           Emergency Controls
         </h2>
+        <InfoTooltip
+          title="Emergency Actions"
+          content="Manual Shelter closes all positions instantly. Entropy Exit uses Pyth Entropy (Fortuna) to randomize exit timing — preventing MEV bots from front-running your trades. Guardian Shield activates automatically when health factor drops below 1.0 to defend against liquidation."
+        />
       </div>
 
       <div className="flex-1 flex flex-col space-y-2">

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Area, AreaChart, ResponsiveContainer } from 'recharts';
 import type { PriceFeed } from '../types';
 import { formatPrice, formatCompact } from '../hooks';
+import InfoTooltip from './InfoTooltip';
 
 interface PriceTickerProps {
   feeds: PriceFeed[];
@@ -36,6 +37,11 @@ export default memo(function PriceTicker({ feeds, updatedId, isLive = false }: P
           <h2 className="font-mono text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
             {isLive ? 'Pyth Hermes — Live' : 'Pyth Pro Feeds'}
           </h2>
+          <InfoTooltip
+            title="Pyth Price Feeds"
+            content="Prices are streamed from Pyth's Hermes API using Server-Sent Events (SSE). Each feed reports a price, a confidence interval (±), and an EMA (exponential moving average). The confidence interval shows how much publishers disagree — wider confidence means more uncertainty."
+            learnMoreUrl="https://docs.pyth.network/price-feeds"
+          />
         </div>
         <span className="font-mono text-[10px] text-pyth-text-muted">
           {feeds.length} feeds · {isLive ? 'hermes.pyth.network' : 'mock data'}
@@ -142,7 +148,7 @@ function PriceCard({ feed, isUpdating }: { feed: PriceFeed; isUpdating: boolean 
 
       {/* Confidence */}
       <div className="flex items-center justify-between mt-1">
-        <span className="font-mono text-[9px] text-pyth-text-muted">
+        <span className="font-mono text-[9px] text-pyth-text-muted" title="Confidence interval — the range within which the true price likely falls. Smaller = more publisher agreement.">
           ±${feed.confidence < 1 ? feed.confidence.toFixed(4) : feed.confidence.toFixed(2)}
         </span>
         <span className="font-mono text-[9px] text-pyth-text-muted">

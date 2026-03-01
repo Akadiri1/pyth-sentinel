@@ -3,6 +3,7 @@ import { Wallet, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Position } from '../types';
 import { formatPrice } from '../hooks';
+import InfoTooltip from './InfoTooltip';
 
 interface PositionsPanelProps {
   positions: Position[];
@@ -23,6 +24,10 @@ export default memo(function PositionsPanel({ positions, isSheltered }: Position
           <h2 className="font-mono text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
             Active Positions
           </h2>
+          <InfoTooltip
+            title="Health Factor"
+            content="Health Factor measures how close a leveraged position is to liquidation. Below 1.0 = liquidation imminent. Calculated from (collateral × liquidation threshold) ÷ debt. Pyth price feeds update this in real-time — a sudden price crash can trigger Guardian Shield automatically."
+          />
           {isSheltered && (
             <span className="font-mono text-[9px] px-2 py-0.5 rounded-full bg-pyth-yellow/15 text-pyth-yellow font-bold animate-pulse">
               SHELTERED

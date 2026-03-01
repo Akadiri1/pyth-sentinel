@@ -18,6 +18,7 @@ import {
   Lock,
 } from 'lucide-react';
 import type { PublisherRadarData } from '../hooks';
+import InfoTooltip from './InfoTooltip';
 
 interface Props {
   radar: PublisherRadarData;
@@ -79,9 +80,16 @@ export default memo(function PublisherRadar({ radar }: Props) {
             <Radar className="w-4 h-4 text-pyth-purple" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-pyth-lavender font-mono tracking-wide">
-              PUBLISHER RADAR
-            </h2>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-sm font-semibold text-pyth-lavender font-mono tracking-wide">
+                PUBLISHER RADAR
+              </h2>
+              <InfoTooltip
+                title="Oracle Publishers"
+                content="Pyth aggregates prices from 120+ first-party institutional publishers (Jane Street, Binance, Jump, etc.). Each publisher stakes PYTH tokens as collateral. If a publisher's price deviates too far from the aggregate, they risk slashing. This economic security model makes Pyth feeds resistant to manipulation."
+                learnMoreUrl="https://docs.pyth.network/home/oracle-integrity-staking"
+              />
+            </div>
             <p className="text-[10px] text-pyth-text-muted font-mono">
               Oracle Meta-Analysis · {publishers.length} Publishers
             </p>

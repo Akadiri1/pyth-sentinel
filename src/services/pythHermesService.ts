@@ -190,47 +190,125 @@ export async function fetchLatestPrices(): Promise<PriceFeed[]> {
 export type PriceUpdateCallback = (feeds: PriceFeed[]) => void;
 export type ConnectionStatusCallback = (status: 'connected' | 'connecting' | 'disconnected' | 'error') => void;
 
-// ── Resilient Poller with retry logic ──
-// This is the PRIMARY data source. Polls REST every ~1.5s.
-// Only reports 'error' after MAX_CONSECUTIVE_FAILURES.
+// ── SSE Streaming with REST fallback ──
+// PRIMARY: Server-Sent Events stream from /v2/updates/price/stream
+// FALLBACK: REST polling every 1.5s from /v2/updates/price/latest
 export function createResilientPoller(
   onUpdate: PriceUpdateCallback,
   onStatus: ConnectionStatusCallback,
   intervalMs = 1500,
 ): () => void {
   let active = true;
+  let eventSource: EventSource | null = null;
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
   let consecutiveFailures = 0;
-  const MAX_FAILURES = 10; // only give up after 10 consecutive failures (~15 seconds)
+  const MAX_FAILURES = 10;
 
   onStatus('connecting');
 
-  const poll = async () => {
+  // ── Attempt SSE stream first ──
+  function startSSE() {
     if (!active) return;
+
+    const ids = PYTH_FEEDS.map(f => f.id.replace(/^0x/, ''));
+    const url = new URL(`${HERMES_ENDPOINT}/v2/updates/price/stream`);
+    ids.forEach(id => url.searchParams.append('ids[]', id));
+    url.searchParams.set('parsed', 'true');
+    url.searchParams.set('allow_unordered', 'true');
+    url.searchParams.set('benchmarks_only', 'false');
+
     try {
-      const feeds = await fetchLatestPrices();
-      if (!active) return;
-      consecutiveFailures = 0;
-      onStatus('connected');
-      onUpdate(feeds);
+      eventSource = new EventSource(url.toString());
+
+      eventSource.onopen = () => {
+        if (!active) return;
+        consecutiveFailures = 0;
+        onStatus('connected');
+        console.log('[Sentinel-1] SSE stream connected to Pyth Hermes');
+      };
+
+      eventSource.onmessage = (event) => {
+        if (!active) return;
+        try {
+          const data: HermesResponse = JSON.parse(event.data);
+          const feeds: PriceFeed[] = [];
+          for (const update of data.parsed) {
+            const feed = hermesToPriceFeed(update);
+            if (feed) feeds.push(feed);
+          }
+          if (feeds.length > 0) {
+            consecutiveFailures = 0;
+            onStatus('connected');
+            onUpdate(feeds);
+          }
+        } catch (parseErr) {
+          console.warn('[Sentinel-1] SSE parse error:', parseErr);
+        }
+      };
+
+      eventSource.onerror = () => {
+        if (!active) return;
+        consecutiveFailures++;
+        console.warn(`[Sentinel-1] SSE error (${consecutiveFailures}/${MAX_FAILURES})`);
+
+        // Close broken SSE and fall back to REST polling
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+
+        if (consecutiveFailures < MAX_FAILURES) {
+          console.log('[Sentinel-1] Falling back to REST polling');
+          startRESTPolling();
+        } else {
+          onStatus('error');
+        }
+      };
     } catch (err) {
-      if (!active) return;
-      consecutiveFailures++;
-      console.warn(`[Sentinel-1] Poll failed (${consecutiveFailures}/${MAX_FAILURES}):`, err);
-      if (consecutiveFailures >= MAX_FAILURES) {
-        onStatus('error');
-      }
-      // Keep trying even on errors — don't stop polling
+      console.warn('[Sentinel-1] SSE init failed, using REST polling:', err);
+      startRESTPolling();
     }
-  };
+  }
 
-  // Initial fetch
-  poll();
+  // ── Fallback REST polling ──
+  function startRESTPolling() {
+    if (!active || pollTimer) return;
 
-  const timer = setInterval(poll, intervalMs);
+    const poll = async () => {
+      if (!active) return;
+      try {
+        const feeds = await fetchLatestPrices();
+        if (!active) return;
+        consecutiveFailures = 0;
+        onStatus('connected');
+        onUpdate(feeds);
+      } catch (err) {
+        if (!active) return;
+        consecutiveFailures++;
+        console.warn(`[Sentinel-1] Poll failed (${consecutiveFailures}/${MAX_FAILURES}):`, err);
+        if (consecutiveFailures >= MAX_FAILURES) {
+          onStatus('error');
+        }
+      }
+    };
+
+    poll();
+    pollTimer = setInterval(poll, intervalMs);
+  }
+
+  // Start with SSE
+  startSSE();
 
   return () => {
     active = false;
-    clearInterval(timer);
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
     onStatus('disconnected');
   };
 }

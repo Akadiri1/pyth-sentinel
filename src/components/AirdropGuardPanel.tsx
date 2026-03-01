@@ -22,6 +22,7 @@ import {
   airdropRiskLabel,
   shortenAirdropAddress,
 } from '../services/airdropGuardService';
+import InfoTooltip from './InfoTooltip';
 
 interface AirdropGuardPanelProps {
   guard: AirdropGuardState;
@@ -130,6 +131,10 @@ export default memo(function AirdropGuardPanel({
           <h2 className="font-mono text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
             Airdrop Guard
           </h2>
+          <InfoTooltip
+            title="SPL Token Security"
+            content="Scans your Solana wallet's SPL token accounts for dangerous delegations (third parties authorized to move your tokens), known scam tokens, and suspicious airdrops. Delegations are the #1 drain attack vector — revoking them is one click."
+          />
           {guard.isScanning && (
             <motion.div
               animate={{ rotate: 360 }}

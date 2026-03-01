@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ShieldAlert, TrendingUp, TrendingDown, Minus, Activity } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { RiskMetrics } from '../types';
+import InfoTooltip from './InfoTooltip';
 
 interface RiskGaugeProps {
   metrics: RiskMetrics;
@@ -36,6 +37,11 @@ export default memo(function RiskGauge({ metrics }: RiskGaugeProps) {
         <h2 className="font-mono text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
           Risk Assessment
         </h2>
+        <InfoTooltip
+          title="Composite Risk Score"
+          content="Combines three real-time signals from Pyth data: Volatility Index (price variance across feeds), Correlation Risk (cross-asset directional co-movement), and Liquidation Proximity (minimum health factor). Weighted 35/35/30. Higher score = more danger."
+          learnMoreUrl="https://docs.pyth.network/price-feeds/best-practices"
+        />
       </div>
 
       {/* Gauge */}

@@ -4,6 +4,7 @@ import { Dice5, Play, CheckCircle2, Loader2, AlertCircle, Zap, Radio } from 'luc
 import { motion } from 'framer-motion';
 import type { EntropySimulation } from '../types';
 import type { LiveEntropySeed, EntropyConnectionStatus } from '../services/pythEntropyService';
+import InfoTooltip from './InfoTooltip';
 
 interface EntropyPanelProps {
   simulations: EntropySimulation[];
@@ -43,6 +44,11 @@ export default memo(function EntropyPanel({ simulations, entropyStatus, latestSe
           <h2 className="font-mono text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
             Entropy Stress Tests
           </h2>
+          <InfoTooltip
+            title="Pyth Entropy (Fortuna)"
+            content="Stress tests use real random seeds from Pyth's Fortuna — an on-chain verifiable random number generator. Each seed drives scenario parameters (crash magnitude, timing). Fortuna ensures randomness is provably fair and tamper-proof, preventing MEV bots from front-running emergency exits."
+            learnMoreUrl="https://docs.pyth.network/entropy"
+          />
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">

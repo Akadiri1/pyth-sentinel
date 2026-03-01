@@ -18,7 +18,7 @@
 
 Sentinel-1 is an **autonomous AI risk warden** — a real-time portfolio monitoring & wallet security dashboard that:
 
-- **Streams live price data** from 8 Pyth Hermes feeds (BTC, ETH, SOL, PYTH, LINK, AVAX, USDT, DOGE) via REST polling every 1.5 seconds
+- **Streams live price data** from 8 Pyth Hermes feeds (BTC, ETH, SOL, PYTH, LINK, AVAX, USDT, DOGE) via **SSE streaming** with REST polling fallback
 - **Connects Solana wallets** (Phantom) to scan token accounts for malicious delegations, scam tokens & drain attacks
 - **Scans any wallet** — paste any Solana address to inspect token safety without connecting
 - **Resolves token metadata** from Jupiter's verified token list (1,000+ tokens) + local trusted-mints database
@@ -78,12 +78,14 @@ Sentinel-1 is an **autonomous AI risk warden** — a real-time portfolio monitor
 
 ## Features Built
 
-### 1. Live Pyth Price Feeds
-- **8 real Pyth mainnet feed IDs** polling via `hermes.pyth.network/v2/updates/price/latest`
-- **Resilient poller** with AbortController timeouts (8s), 10-consecutive-failure tolerance before mock fallback
+### 1. Live Pyth Price Feeds (SSE Streaming)
+- **8 real Pyth mainnet feed IDs** streaming via `hermes.pyth.network/v2/updates/price/stream` (Server-Sent Events)
+- **Automatic REST polling fallback** if SSE disconnects — polls `/v2/updates/price/latest` every 1.5s
+- **Resilient connection** with 10-consecutive-failure tolerance before mock fallback
 - **Sparkline history** (24 data points per feed) accumulated in-memory
 - **Connection indicator** in header: PYTH LIVE (green) / PYTH MOCK (yellow) / connecting (cyan) / error (red)
 - Price cards with Recharts sparkline charts, confidence intervals, 24h change, and category badges
+- **Educational tooltips** explaining Pyth concepts (confidence intervals, EMA, publisher staking) on hover
 
 ### 2. Live Risk Assessment
 - **Volatility Index** — computed from sparkline price variance across all feeds
@@ -212,6 +214,18 @@ Full SPL token account scanner protecting wallets from airdrop drain attacks:
 - **Animations**: Framer Motion entry animations, price pulse, scanline scroll, sentinel blink, danger pulse, guardian glow
 - **Custom CSS**: Grid background pattern, gradient text, typing cursor, button hover glow borders
 
+### 16. Educational Tooltips (InfoTooltip System)
+- **Reusable `InfoTooltip` component** — hover/click tooltips throughout the dashboard explaining Pyth concepts
+- **8 educational tooltips** covering: Price Feeds, Confidence Intervals, EMA, Entropy/Fortuna, Health Factors, Publisher Staking, MEV Protection, Token Delegations
+- Each tooltip includes a title, educational description, and optional "Learn more" link to Pyth docs
+- Targets the **Best Educational Content** hackathon category
+
+### 17. Exportable Risk Reports
+- **3 export formats**: Styled HTML (printable to PDF), JSON (machine-readable), CSV (spreadsheet-compatible)
+- Reports include: risk assessment, all price feeds, positions with P&L, and entropy stress test results
+- Generated from live dashboard state with Pyth Hermes data attribution
+- One-click download from footer button
+
 ---
 
 ## Tech Stack
@@ -226,7 +240,7 @@ Full SPL token account scanner protecting wallets from airdrop drain attacks:
 | **Icons** | Lucide React (~25 icons) |
 | **Wallet** | `@solana/wallet-adapter-react` + `@solana/wallet-adapter-phantom` |
 | **Blockchain** | `@solana/web3.js` + `@solana/spl-token` |
-| **Data** | Pyth Hermes REST API (live) + Pyth Entropy (Fortuna) + Jupiter Token List |
+| **Data** | Pyth Hermes SSE + REST (live) + Pyth Entropy (Fortuna) + Jupiter Token List |
 | **Fonts** | Google Fonts (JetBrains Mono, Inter) |
 | **Deployment** | Vercel |
 
@@ -300,7 +314,8 @@ Connect a **Phantom wallet** to enable Wallet Security and Airdrop Guard, or **p
 ## Pyth Integration Details
 
 ### Pyth Pro (Real-Time Price Feeds)
-- **Endpoint**: `https://hermes.pyth.network/v2/updates/price/latest`
+- **Primary**: SSE streaming via `https://hermes.pyth.network/v2/updates/price/stream`
+- **Fallback**: REST polling via `https://hermes.pyth.network/v2/updates/price/latest` (1.5s interval)
 - **8 Mainnet Feed IDs**:
   | Asset | Feed ID |
   |-------|---------|
