@@ -600,7 +600,7 @@ export function useLiveEntropy(feeds: PriceFeed[], positions: Position[]): {
 // ── Agent Reasoning Log — uses live price data ──
 export function useAgentLogs(interval = 3000, feeds: PriceFeed[] = []) {
   const [logs, setLogs] = useState<AgentLog[]>([]);
-  const maxLogs = 50;
+  const maxLogs = 30;
   const feedsRef = useRef<PriceFeed[]>(feeds);
 
   useEffect(() => {

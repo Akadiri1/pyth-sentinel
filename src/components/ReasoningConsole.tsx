@@ -36,7 +36,7 @@ export default function ReasoningConsole({ logs }: ReasoningConsoleProps) {
   }, [logs.length]);
 
   return (
-    <div className="glass-card flex flex-col h-full scanline-overlay">
+    <div className="glass-card flex flex-col h-[360px] sm:h-[420px] scanline-overlay">
       {/* Header */}
       <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-2.5 border-b border-pyth-border">
         <div className="flex items-center gap-2">
