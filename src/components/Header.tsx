@@ -1,6 +1,7 @@
 // ── Header Component ──
 import { Shield, Activity, Wifi, Clock, Zap } from 'lucide-react';
 import { formatUptime } from '../hooks';
+import WalletButton from './WalletButton';
 import type { AgentState } from '../types';
 
 interface HeaderProps {
@@ -71,8 +72,9 @@ export default function Header({ agentState, latency, connectionStatus, dataSour
         </div>
       </div>
 
-      {/* Right: Connection Status */}
-      <div className="flex items-center gap-4">
+      {/* Right: Wallet + Connection Status */}
+      <div className="flex items-center gap-3">
+        <WalletButton />
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${
           connectionStatus === 'connected'
             ? 'bg-pyth-green/10 border-pyth-green/20'

@@ -1,8 +1,9 @@
-// ── Agent Chat Interface — Live Data Aware ──
+// ── Agent Chat Interface — Live Data Aware + Optional LLM ──
 import { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Send, Bot, User, Sparkles } from 'lucide-react';
+import { MessageSquare, Send, Bot, User, Sparkles, Settings, X, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { PriceFeed, Position } from '../types';
+import { getAIResponse, hasApiKey, setApiKey, clearApiKey, getStoredApiKey } from '../services/aiAgentService';
 
 interface ChatMessage {
   id: string;
@@ -177,6 +178,9 @@ Try: *"What's the risk if rates rise?"* or *"Analyze SOL position"*`,
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [aiEnabled, setAiEnabled] = useState(hasApiKey());
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -185,7 +189,22 @@ Try: *"What's the risk if rates rise?"* or *"Analyze SOL position"*`,
     }
   }, [messages]);
 
-  const handleSend = () => {
+  const handleSaveApiKey = () => {
+    if (apiKeyInput.trim()) {
+      setApiKey(apiKeyInput.trim());
+      setAiEnabled(true);
+      setApiKeyInput('');
+      setShowSettings(false);
+    }
+  };
+
+  const handleClearApiKey = () => {
+    clearApiKey();
+    setAiEnabled(false);
+    setApiKeyInput('');
+  };
+
+  const handleSend = async () => {
     if (!input.trim() || isTyping) return;
 
     const userMsg: ChatMessage = {
@@ -200,21 +219,36 @@ Try: *"What's the risk if rates rise?"* or *"Analyze SOL position"*`,
     setInput('');
     setIsTyping(true);
 
-    // Simulate agent thinking delay
-    setTimeout(() => {
-      const agentMsg: ChatMessage = {
-        id: `agent-${Date.now()}`,
-        role: 'agent',
-        content: getAgentResponse(query, feeds, positions),
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, agentMsg]);
-      setIsTyping(false);
-    }, 1500 + Math.random() * 1500);
+    // Try AI response first, fall back to local
+    let responseContent: string;
+    let isAI = false;
+
+    if (aiEnabled) {
+      const aiResult = await getAIResponse(query, feeds || [], positions || []);
+      if (aiResult.isAI && aiResult.content) {
+        responseContent = aiResult.content;
+        isAI = true;
+      } else {
+        responseContent = getAgentResponse(query, feeds, positions);
+      }
+    } else {
+      // Add natural delay for local responses
+      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1500));
+      responseContent = getAgentResponse(query, feeds, positions);
+    }
+
+    const agentMsg: ChatMessage = {
+      id: `agent-${Date.now()}`,
+      role: 'agent',
+      content: (isAI ? '🧠 ' : '') + responseContent,
+      timestamp: Date.now(),
+    };
+    setMessages(prev => [...prev, agentMsg]);
+    setIsTyping(false);
   };
 
   return (
-    <div className="glass-card flex flex-col h-full">
+    <div className="glass-card flex flex-col h-full max-h-[480px] lg:max-h-none">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-pyth-border">
         <div className="flex items-center gap-2">
@@ -223,14 +257,90 @@ Try: *"What's the risk if rates rise?"* or *"Analyze SOL position"*`,
             AGENT INTERFACE
           </h2>
         </div>
-        <div className="flex items-center gap-1.5">
-          <Sparkles className="w-3 h-3 text-pyth-purple" />
-          <span className="font-mono text-[10px] text-pyth-purple">AI-Powered</span>
+        <div className="flex items-center gap-2">
+          {aiEnabled && (
+            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-pyth-green/10 text-pyth-green">
+              <span className="w-1.5 h-1.5 rounded-full bg-pyth-green animate-pulse" />
+              <span className="font-mono text-[8px] font-bold">LLM</span>
+            </span>
+          )}
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className="p-1 rounded-md hover:bg-pyth-surface transition-colors text-pyth-text-muted hover:text-pyth-purple"
+            title="Configure AI"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </button>
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="w-3 h-3 text-pyth-purple" />
+            <span className="font-mono text-[10px] text-pyth-purple">AI-Powered</span>
+          </div>
         </div>
       </div>
 
+      {/* API Key Settings */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden border-b border-pyth-border"
+          >
+            <div className="px-4 py-3 bg-pyth-surface/50 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10px] text-pyth-text-dim">
+                  OpenAI API Key {aiEnabled ? '(active)' : '(optional)'}
+                </span>
+                <button onClick={() => setShowSettings(false)} className="text-pyth-text-muted hover:text-pyth-text">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              {aiEnabled ? (
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] text-pyth-green flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Key configured ({getStoredApiKey()?.slice(0, 8)}...)
+                  </span>
+                  <button
+                    onClick={handleClearApiKey}
+                    className="font-mono text-[9px] px-2 py-0.5 rounded bg-pyth-red/10 text-pyth-red hover:bg-pyth-red/20 transition-colors"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-1.5">
+                  <input
+                    type="password"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSaveApiKey()}
+                    placeholder="sk-..."
+                    className="flex-1 px-2 py-1 rounded bg-pyth-bg border border-pyth-border
+                      font-mono text-[10px] text-pyth-text placeholder:text-pyth-text-muted
+                      focus:outline-none focus:border-pyth-purple/50"
+                  />
+                  <button
+                    onClick={handleSaveApiKey}
+                    disabled={!apiKeyInput.trim()}
+                    className="px-2 py-1 rounded bg-pyth-purple/20 text-pyth-purple font-mono text-[10px]
+                      hover:bg-pyth-purple/30 disabled:opacity-30 transition-all"
+                  >
+                    Save
+                  </button>
+                </div>
+              )}
+              <p className="font-mono text-[8px] text-pyth-text-muted leading-relaxed">
+                Optional: Add an OpenAI key for GPT-powered responses. Key is stored in localStorage only.
+                Without a key, Sentinel uses built-in context-aware responses.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3 max-h-[350px]">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
         <AnimatePresence>
           {messages.map(msg => (
             <motion.div
