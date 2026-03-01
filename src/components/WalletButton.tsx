@@ -123,7 +123,7 @@ export default function WalletButton() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="fixed w-64 z-[100]
+            className="fixed w-64 z-[9999]
               bg-pyth-surface border border-pyth-border rounded-xl
               shadow-2xl shadow-black/40 overflow-hidden"
             style={{ top: dropdownPos.top, right: dropdownPos.right }}
@@ -199,7 +199,7 @@ export default function WalletButton() {
       {/* Click outside handler */}
       {showDropdown && (
         <div
-          className="fixed inset-0 z-[99]"
+          className="fixed inset-0 z-[9998]"
           onClick={() => setShowDropdown(false)}
         />
       )}

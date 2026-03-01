@@ -439,80 +439,80 @@ export default function ReportPanel({ feeds, positions, riskMetrics, simulations
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-lg bg-pyth-surface border border-pyth-border rounded-2xl shadow-2xl overflow-hidden"
+            className="relative w-full max-w-lg bg-pyth-surface border border-pyth-border rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-pyth-border">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-pyth-purple/20 flex items-center justify-center">
-                  <FileText className="w-4.5 h-4.5 text-pyth-purple" />
+            <div className="flex items-center justify-between px-3 sm:px-5 py-3 sm:py-4 border-b border-pyth-border">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-pyth-purple/20 flex items-center justify-center shrink-0">
+                  <FileText className="w-4 h-4 text-pyth-purple" />
                 </div>
-                <div>
-                  <h2 className="text-sm font-bold text-pyth-text font-mono tracking-wide">
+                <div className="min-w-0">
+                  <h2 className="text-xs sm:text-sm font-bold text-pyth-text font-mono tracking-wide">
                     EXPORT RISK REPORT
                   </h2>
-                  <p className="text-[10px] text-pyth-text-muted font-mono">
+                  <p className="text-[9px] sm:text-[10px] text-pyth-text-muted font-mono truncate">
                     Snapshot of current dashboard state
                   </p>
                 </div>
               </div>
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-lg hover:bg-pyth-bg transition-colors text-pyth-text-muted hover:text-pyth-text"
+                className="p-1.5 rounded-lg hover:bg-pyth-bg transition-colors text-pyth-text-muted hover:text-pyth-text shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Preview */}
-            <div className="px-5 py-4 space-y-3">
+            <div className="px-3 sm:px-5 py-3 sm:py-4 space-y-3">
               {/* Risk summary */}
-              <div className="flex items-center gap-4 p-3 rounded-xl bg-pyth-bg border border-pyth-border">
-                <div className="text-center">
-                  <div className="text-2xl font-black font-mono" style={{ color: riskColor }}>
+              <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 p-3 rounded-xl bg-pyth-bg border border-pyth-border">
+                <div className="text-center shrink-0">
+                  <div className="text-xl sm:text-2xl font-black font-mono" style={{ color: riskColor }}>
                     {riskMetrics.overallScore}
                   </div>
                   <div className="text-[8px] font-mono font-bold tracking-wider" style={{ color: riskColor }}>
                     {riskLabel}
                   </div>
                 </div>
-                <div className="flex-1 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Shield className="w-3 h-3 text-pyth-purple" />
-                    <span className="text-[10px] font-mono text-pyth-text-dim">
-                      {feeds.length} feeds · {positions.length} positions
+                <div className="flex-1 w-full grid grid-cols-2 sm:grid-cols-1 gap-1">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <Shield className="w-3 h-3 text-pyth-purple shrink-0" />
+                    <span className="text-[9px] sm:text-[10px] font-mono text-pyth-text-dim truncate">
+                      {feeds.length} feeds · {positions.length} pos
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-3 h-3 text-pyth-green" />
-                    <span className={`text-[10px] font-mono font-bold ${totalPnl >= 0 ? 'text-pyth-green' : 'text-pyth-red'}`}>
-                      P&L: {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <TrendingUp className="w-3 h-3 text-pyth-green shrink-0" />
+                    <span className={`text-[9px] sm:text-[10px] font-mono font-bold truncate ${totalPnl >= 0 ? 'text-pyth-green' : 'text-pyth-red'}`}>
+                      P&L: {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(0)}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="w-3 h-3 text-pyth-yellow" />
-                    <span className="text-[10px] font-mono text-pyth-text-dim">
-                      Volatility: {riskMetrics.volatilityIndex.toFixed(1)}% · Corr: {riskMetrics.correlationRisk.toFixed(0)}%
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <AlertTriangle className="w-3 h-3 text-pyth-yellow shrink-0" />
+                    <span className="text-[9px] sm:text-[10px] font-mono text-pyth-text-dim truncate">
+                      Vol: {riskMetrics.volatilityIndex.toFixed(1)}% · Corr: {riskMetrics.correlationRisk.toFixed(0)}%
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Zap className="w-3 h-3 text-pyth-cyan" />
-                    <span className="text-[10px] font-mono text-pyth-text-dim">
-                      {simulations.length} entropy stress tests
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <Zap className="w-3 h-3 text-pyth-cyan shrink-0" />
+                    <span className="text-[9px] sm:text-[10px] font-mono text-pyth-text-dim truncate">
+                      {simulations.length} stress tests
                     </span>
                   </div>
                 </div>
               </div>
 
               {/* Report includes */}
-              <div className="text-[10px] font-mono text-pyth-text-muted">
+              <div className="text-[9px] sm:text-[10px] font-mono text-pyth-text-muted">
                 <span className="text-pyth-text-dim font-semibold">Report includes:</span>{' '}
-                Risk score & metrics · All live prices · Position details · Entropy stress test results
+                Risk score · Live prices · Positions · Stress tests
               </div>
             </div>
 
             {/* Actions */}
-            <div className="px-5 py-4 border-t border-pyth-border bg-pyth-bg/50 space-y-2">
+            <div className="px-3 sm:px-5 py-3 sm:py-4 border-t border-pyth-border bg-pyth-bg/50 space-y-2">
               {/* Download formats */}
               <div className="grid grid-cols-3 gap-2">
                 <motion.button
