@@ -36,7 +36,7 @@ export const PYTH_FEEDS = [
     category: 'crypto' as const,
   },
   {
-    id: '0x93da3352f9f1d105fdfe4971cfa80e9dd777bfc5d0f683ebb6e1571f7cbe3882',
+    id: '0x93da3352f9f1d105fdfe4971cfa80e9dd777bfc5d0f683ebb6e1294b92137bb7',
     symbol: 'AVAX/USD',
     name: 'Avalanche',
     category: 'crypto' as const,

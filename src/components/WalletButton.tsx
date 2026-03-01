@@ -2,6 +2,7 @@
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wallet, LogOut, Copy, Check, ExternalLink } from 'lucide-react';
 
@@ -115,19 +116,27 @@ export default function WalletButton() {
         )}
       </motion.button>
 
-      {/* Dropdown — fixed position to escape stacking context */}
-      <AnimatePresence>
-        {showDropdown && (
-          <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="fixed w-64 z-[9999]
-              bg-pyth-surface border border-pyth-border rounded-xl
-              shadow-2xl shadow-black/40 overflow-hidden"
-            style={{ top: dropdownPos.top, right: dropdownPos.right }}
-          >
+      {/* Dropdown — rendered via portal to body to escape all stacking contexts */}
+      {createPortal(
+        <AnimatePresence>
+          {showDropdown && (
+            <>
+              {/* Click outside handler */}
+              <div
+                className="fixed inset-0"
+                style={{ zIndex: 99998 }}
+                onClick={() => setShowDropdown(false)}
+              />
+              <motion.div
+                initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className="fixed w-64
+                  bg-pyth-surface border border-pyth-border rounded-xl
+                  shadow-2xl shadow-black/40 overflow-hidden"
+                style={{ top: dropdownPos.top, right: dropdownPos.right, zIndex: 99999 }}
+              >
             {/* Balance section */}
             <div className="p-4 border-b border-pyth-border">
               <div className="text-[9px] font-mono text-pyth-text-muted uppercase tracking-wider mb-1">
@@ -192,16 +201,11 @@ export default function WalletButton() {
                 Disconnect
               </button>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Click outside handler */}
-      {showDropdown && (
-        <div
-          className="fixed inset-0 z-[9998]"
-          onClick={() => setShowDropdown(false)}
-        />
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>,
+        document.body
       )}
     </div>
   );

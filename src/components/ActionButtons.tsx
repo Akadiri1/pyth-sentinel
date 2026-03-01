@@ -36,15 +36,15 @@ export default function ActionButtons({ onShelter, onEntropyExit, onGuardianShie
   };
 
   return (
-    <div className="glass-card p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Lock className="w-4 h-4 text-pyth-red" />
-        <h2 className="font-mono text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
+    <div className="glass-card p-3 sm:p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Lock className="w-3.5 h-3.5 text-pyth-red" />
+        <h2 className="font-mono text-[10px] sm:text-xs font-semibold text-pyth-text-dim tracking-wider uppercase">
           Emergency Controls
         </h2>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {/* Critical Agent Override Box */}
         <AnimatePresence>
           {isCritical && (
@@ -52,17 +52,17 @@ export default function ActionButtons({ onShelter, onEntropyExit, onGuardianShie
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="px-3 py-3 rounded-lg bg-pyth-red/10 border border-pyth-red/40 space-y-2"
+              className="px-2.5 py-2 rounded-lg bg-pyth-red/10 border border-pyth-red/40 space-y-1"
             >
               <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-pyth-red animate-pulse" />
-                <span className="font-mono text-[10px] font-bold text-pyth-red tracking-wider">
+                <AlertTriangle className="w-3.5 h-3.5 text-pyth-red animate-pulse" />
+                <span className="font-mono text-[9px] font-bold text-pyth-red tracking-wider">
                   AGENT ACTION OVERRIDE
                 </span>
               </div>
-              <p className="font-mono text-[11px] text-pyth-red/90 leading-relaxed">
+              <p className="font-mono text-[10px] text-pyth-red/90 leading-snug">
                 [CRITICAL] Liquidation imminent at ${criticalPrice?.toFixed(2) ?? '80.90'}.
-                Sentinel-1 is calculating Entropy-shielded exit strategy...
+                Sentinel-1 calculating exit strategy...
               </p>
             </motion.div>
           )}
@@ -81,14 +81,14 @@ export default function ActionButtons({ onShelter, onEntropyExit, onGuardianShie
                 whileTap={{ scale: 0.97 }}
                 onClick={handleGuardian}
                 disabled={guardianLoading}
-                className="w-full px-4 py-5 rounded-xl font-mono text-base font-black tracking-widest
+                className="w-full px-3 py-3 rounded-xl font-mono text-sm font-black tracking-widest
                   bg-gradient-to-r from-pyth-red/30 via-pyth-red/20 to-pyth-red/30
                   border-2 border-pyth-red/50 hover:border-pyth-red
                   text-white
                   transition-all duration-300
                   guardian-glow
                   disabled:opacity-60 disabled:cursor-not-allowed
-                  flex items-center justify-center gap-3"
+                  flex items-center justify-center gap-2"
               >
                 {guardianLoading ? (
                   <>
@@ -115,7 +115,7 @@ export default function ActionButtons({ onShelter, onEntropyExit, onGuardianShie
           whileTap={{ scale: 0.98 }}
           onClick={handleShelter}
           disabled={shelterLoading}
-          className="w-full px-4 py-3 rounded-xl font-mono text-sm font-bold tracking-wider
+          className="w-full px-3 py-2.5 rounded-xl font-mono text-xs font-bold tracking-wider
             bg-gradient-to-r from-pyth-red/20 to-pyth-red/10
             border border-pyth-red/30 hover:border-pyth-red/60
             text-pyth-red hover:text-white
@@ -137,9 +137,6 @@ export default function ActionButtons({ onShelter, onEntropyExit, onGuardianShie
             </>
           )}
         </motion.button>
-        <p className="font-mono text-[9px] text-pyth-text-muted text-center">
-          Immediately withdraw all positions to USDC safety vault
-        </p>
 
         {/* Entropy Exit */}
         <motion.button
@@ -147,7 +144,7 @@ export default function ActionButtons({ onShelter, onEntropyExit, onGuardianShie
           whileTap={{ scale: 0.98 }}
           onClick={handleEntropy}
           disabled={entropyLoading}
-          className="w-full px-4 py-3 rounded-xl font-mono text-sm font-bold tracking-wider
+          className="w-full px-3 py-2.5 rounded-xl font-mono text-xs font-bold tracking-wider
             bg-gradient-to-r from-pyth-purple/20 to-pyth-purple/10
             border border-pyth-purple/30 hover:border-pyth-purple/60
             text-pyth-purple hover:text-pyth-lavender
@@ -169,9 +166,6 @@ export default function ActionButtons({ onShelter, onEntropyExit, onGuardianShie
             </>
           )}
         </motion.button>
-        <p className="font-mono text-[9px] text-pyth-text-muted text-center">
-          Exit via Pyth Entropy — randomized timing & tranches to prevent MEV
-        </p>
       </div>
     </div>
   );
