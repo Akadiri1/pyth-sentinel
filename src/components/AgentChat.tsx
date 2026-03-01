@@ -248,7 +248,7 @@ Try: *"What's the risk if rates rise?"* or *"Analyze SOL position"*`,
   };
 
   return (
-    <div className="glass-card flex flex-col h-full max-h-[480px] lg:max-h-none">
+    <div className="glass-card flex flex-col h-full max-h-[420px]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-pyth-border">
         <div className="flex items-center gap-2">
