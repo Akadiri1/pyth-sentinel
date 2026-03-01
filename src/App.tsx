@@ -18,9 +18,10 @@ import ReportPanel from './components/ReportPanel';
 import BacktestPanel from './components/BacktestPanel';
 import WalletSecurityPanel from './components/WalletSecurityPanel';
 import SecurityAlertModal from './components/SecurityAlertModal';
+import AirdropGuardPanel from './components/AirdropGuardPanel';
 import WalletProvider from './components/WalletProvider';
 import ErrorBoundary from './components/ErrorBoundary';
-import { usePriceFeeds, useAgentLogs, useLiveRiskMetrics, useAgentState, useLivePositions, useLiveEntropy, usePublisherRadar, useWalletSecurity } from './hooks';
+import { usePriceFeeds, useAgentLogs, useLiveRiskMetrics, useAgentState, useLivePositions, useLiveEntropy, usePublisherRadar, useWalletSecurity, useAirdropGuard } from './hooks';
 
 // ── Inner App (inside WalletProvider so hooks can use wallet context) ──
 function AppInner() {
@@ -32,6 +33,7 @@ function AppInner() {
   const { simulations, entropyStatus, latestSeed } = useLiveEntropy(feeds, positions);
   const publisherRadar = usePublisherRadar(feeds);
   const { security, analyses, dismissAlert, dismissAll, rescan } = useWalletSecurity(addLog);
+  const { guard, rescan: rescanAirdrop, revokeDelegation, revokeAllDelegations } = useAirdropGuard(addLog);
   const { publicKey, connected } = useWallet();
   const [latency, setLatency] = useState(0.8);
   const [reportOpen, setReportOpen] = useState(false);
@@ -216,12 +218,32 @@ function AppInner() {
           </ErrorBoundary>
         </motion.div>
 
+        {/* Airdrop Guard (Full Width) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.8 }}
+          role="region"
+          aria-label="Airdrop Guard"
+        >
+          <ErrorBoundary>
+            <AirdropGuardPanel
+              guard={guard}
+              isConnected={connected}
+              walletAddress={publicKey?.toBase58()}
+              onRescan={rescanAirdrop}
+              onRevokeDelegation={revokeDelegation}
+              onRevokeAll={revokeAllDelegations}
+            />
+          </ErrorBoundary>
+        </motion.div>
+
         {/* Footer */}
         <motion.footer
           className="text-center py-4 border-t border-pyth-border"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.8 }}
+          transition={{ delay: 0.85 }}
         >
           <div className="flex items-center justify-center gap-4 mb-2">
             <button

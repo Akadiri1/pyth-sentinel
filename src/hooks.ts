@@ -914,7 +914,7 @@ export function usePublisherRadar(feeds: PriceFeed[]): PublisherRadarData {
 // Polls connected wallet's recent transactions and flags suspicious activity.
 
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import {
   analyzeWalletTransactions,
   computeSecurityScore,
@@ -1102,5 +1102,194 @@ export function useWalletSecurity(
     dismissAlert,
     dismissAll,
     rescan,
+  };
+}
+
+// ── Airdrop Guard ──
+// Monitors wallet token accounts for malicious airdrop patterns,
+// dangerous delegations, and scam tokens. Provides one-click revocation.
+
+import {
+  scanTokenAccounts,
+  buildRevokeDelegationTx,
+  buildRevokeAllDelegationsTx,
+  computeAirdropRiskScore,
+  type TokenAccountInfo,
+  type AirdropAlert,
+  type AirdropGuardState,
+  EMPTY_AIRDROP_STATE,
+} from './services/airdropGuardService';
+
+export function useAirdropGuard(
+  addLog?: (log: Omit<AgentLog, 'id' | 'timestamp'>) => void,
+  pollInterval: number = 60_000, // scan every 60s
+) {
+  const { publicKey, connected, sendTransaction } = useWallet();
+  const { connection } = useConnection();
+  const [state, setState] = useState<AirdropGuardState>(EMPTY_AIRDROP_STATE);
+  const addLogRef = useRef(addLog);
+  const prevAlertIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => { addLogRef.current = addLog; }, [addLog]);
+
+  // Reset on disconnect
+  useEffect(() => {
+    if (!connected || !publicKey) {
+      setState(EMPTY_AIRDROP_STATE);
+      prevAlertIdsRef.current = new Set();
+    }
+  }, [connected, publicKey]);
+
+  // Core scan
+  const runScan = useCallback(async () => {
+    if (!publicKey || !connected) return;
+
+    setState(prev => ({ ...prev, isScanning: true }));
+
+    try {
+      const { accounts, alerts } = await scanTokenAccounts(
+        connection,
+        publicKey.toBase58(),
+      );
+
+      const { score, level } = computeAirdropRiskScore(accounts, alerts);
+
+      // Log NEW alerts to reasoning console
+      const prevIds = prevAlertIdsRef.current;
+      for (const alert of alerts) {
+        if (!prevIds.has(alert.id)) {
+          const logType = alert.severity === 'dangerous' ? 'critical'
+            : alert.severity === 'suspicious' ? 'warning' : 'info';
+          addLogRef.current?.({
+            type: logType,
+            source: 'risk-engine',
+            message: `[AIRDROP GUARD] ${alert.title}: ${alert.description.slice(0, 200)}`,
+          });
+        }
+      }
+      prevAlertIdsRef.current = new Set(alerts.map(a => a.id));
+
+      const totalDelegations = accounts.filter(a => a.delegate !== null).length;
+      const suspiciousTokenCount = accounts.filter(
+        a => a.riskLevel === 'suspicious' || a.riskLevel === 'dangerous'
+      ).length;
+
+      setState({
+        isScanning: false,
+        lastScanTime: Date.now(),
+        tokenAccounts: accounts,
+        alerts,
+        riskScore: score,
+        totalDelegations,
+        suspiciousTokenCount,
+        notificationsEnabled: true,
+      });
+
+      // Browser notifications for dangerous findings
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const dangerous = alerts.filter(a => a.severity === 'dangerous');
+        if (dangerous.length > 0) {
+          new Notification('🛡️ SENTINEL-1 Airdrop Guard', {
+            body: dangerous[0].title + ': ' + dangerous[0].description.slice(0, 120),
+            icon: '/sentinel.svg',
+          });
+        }
+      }
+
+    } catch (err) {
+      console.warn('[AirdropGuard] Scan failed:', err);
+      setState(prev => ({ ...prev, isScanning: false }));
+    }
+  }, [publicKey, connected, connection]);
+
+  // Initial scan + polling
+  useEffect(() => {
+    if (!publicKey || !connected) return;
+
+    // Request notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    runScan();
+    const timer = setInterval(runScan, pollInterval);
+    return () => clearInterval(timer);
+  }, [publicKey, connected, runScan, pollInterval]);
+
+  // Revoke a single delegation
+  const revokeDelegation = useCallback(async (tokenAccountAddress: string) => {
+    if (!publicKey || !connected) return;
+
+    try {
+      const tokenAcctPubkey = new PublicKey(tokenAccountAddress);
+      const tx = buildRevokeDelegationTx(publicKey, tokenAcctPubkey);
+
+      const { blockhash } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = publicKey;
+
+      const sig = await sendTransaction(tx, connection);
+      await connection.confirmTransaction(sig, 'confirmed');
+
+      addLogRef.current?.({
+        type: 'info',
+        source: 'risk-engine',
+        message: `[AIRDROP GUARD] ✅ Successfully revoked delegation for token account ${tokenAccountAddress.slice(0, 8)}...`,
+      });
+
+      // Re-scan after revocation
+      setTimeout(runScan, 2000);
+    } catch (err) {
+      console.error('[AirdropGuard] Revoke failed:', err);
+      addLogRef.current?.({
+        type: 'warning',
+        source: 'risk-engine',
+        message: `[AIRDROP GUARD] ❌ Failed to revoke delegation: ${(err as Error).message}`,
+      });
+    }
+  }, [publicKey, connected, connection, sendTransaction, runScan]);
+
+  // Revoke ALL delegations
+  const revokeAllDelegations = useCallback(async () => {
+    if (!publicKey || !connected) return;
+
+    const delegatedAccounts = state.tokenAccounts
+      .filter(a => a.delegate !== null)
+      .map(a => new PublicKey(a.address));
+
+    if (delegatedAccounts.length === 0) return;
+
+    try {
+      const tx = buildRevokeAllDelegationsTx(publicKey, delegatedAccounts);
+
+      const { blockhash } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = publicKey;
+
+      const sig = await sendTransaction(tx, connection);
+      await connection.confirmTransaction(sig, 'confirmed');
+
+      addLogRef.current?.({
+        type: 'info',
+        source: 'risk-engine',
+        message: `[AIRDROP GUARD] ✅ Revoked ALL ${delegatedAccounts.length} token delegations. Your wallet is now protected.`,
+      });
+
+      setTimeout(runScan, 2000);
+    } catch (err) {
+      console.error('[AirdropGuard] Revoke all failed:', err);
+      addLogRef.current?.({
+        type: 'warning',
+        source: 'risk-engine',
+        message: `[AIRDROP GUARD] ❌ Batch revoke failed: ${(err as Error).message}`,
+      });
+    }
+  }, [publicKey, connected, connection, sendTransaction, state.tokenAccounts, runScan]);
+
+  return {
+    guard: state,
+    rescan: runScan,
+    revokeDelegation,
+    revokeAllDelegations,
   };
 }
