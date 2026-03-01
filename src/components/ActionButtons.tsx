@@ -46,7 +46,7 @@ export default memo(function ActionButtons({ onShelter, onEntropyExit, onGuardia
         </h2>
       </div>
 
-      <div className="flex-1 flex flex-col justify-between space-y-2">
+      <div className="flex-1 flex flex-col space-y-2">
         {/* Critical Agent Override Box */}
         <AnimatePresence>
           {isCritical && (
@@ -104,12 +104,13 @@ export default memo(function ActionButtons({ onShelter, onEntropyExit, onGuardia
                   </>
                 )}
               </motion.button>
-              <p className="font-mono text-[9px] text-pyth-red/70 text-center mt-1">
-                Emergency Pyth Entropy exit — lock collateral & stabilize health factor
-              </p>
+
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Spacer to push buttons down */}
+        <div className="flex-1" />
 
         {/* Manual Shelter */}
         <motion.button
@@ -117,7 +118,7 @@ export default memo(function ActionButtons({ onShelter, onEntropyExit, onGuardia
           whileTap={{ scale: 0.98 }}
           onClick={handleShelter}
           disabled={shelterLoading}
-          className="w-full px-3 py-2.5 rounded-xl font-mono text-xs font-bold tracking-wider
+          className="w-full px-3 py-3 rounded-xl font-mono text-xs font-bold tracking-wider
             bg-gradient-to-r from-pyth-red/20 to-pyth-red/10
             border border-pyth-red/30 hover:border-pyth-red/60
             text-pyth-red hover:text-white
@@ -146,7 +147,7 @@ export default memo(function ActionButtons({ onShelter, onEntropyExit, onGuardia
           whileTap={{ scale: 0.98 }}
           onClick={handleEntropy}
           disabled={entropyLoading}
-          className="w-full px-3 py-2.5 rounded-xl font-mono text-xs font-bold tracking-wider
+          className="w-full px-3 py-3 rounded-xl font-mono text-xs font-bold tracking-wider
             bg-gradient-to-r from-pyth-purple/20 to-pyth-purple/10
             border border-pyth-purple/30 hover:border-pyth-purple/60
             text-pyth-purple hover:text-pyth-lavender

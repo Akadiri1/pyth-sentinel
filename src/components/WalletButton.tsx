@@ -189,19 +189,9 @@ export default function WalletButton() {
                 View on Solscan
               </a>
               <button
-                onClick={async () => {
+                onClick={() => {
                   setShowDropdown(false);
-                  await disconnect();
-                  // After disconnect, select next available wallet or re-trigger connect
-                  if (wallets.length > 1) {
-                    const currentName = wallet?.adapter.name;
-                    const other = wallets.find(w => w.adapter.name !== currentName) || wallets[0];
-                    select(other.adapter.name);
-                    setTimeout(() => connect().catch(() => {}), 100);
-                  } else if (wallets.length === 1) {
-                    select(wallets[0].adapter.name);
-                    setTimeout(() => connect().catch(() => {}), 100);
-                  }
+                  disconnect();
                 }}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg
                   hover:bg-pyth-purple/10 transition-colors text-pyth-purple
