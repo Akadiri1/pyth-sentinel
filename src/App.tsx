@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { useWallet } from '@solana/wallet-adapter-react';
 import Header from './components/Header';
 import PriceTicker from './components/PriceTicker';
 import ReasoningConsole from './components/ReasoningConsole';
@@ -15,11 +16,14 @@ import AgentChat from './components/AgentChat';
 import PublisherRadar from './components/PublisherRadar';
 import ReportPanel from './components/ReportPanel';
 import BacktestPanel from './components/BacktestPanel';
+import WalletSecurityPanel from './components/WalletSecurityPanel';
+import SecurityAlertModal from './components/SecurityAlertModal';
 import WalletProvider from './components/WalletProvider';
 import ErrorBoundary from './components/ErrorBoundary';
-import { usePriceFeeds, useAgentLogs, useLiveRiskMetrics, useAgentState, useLivePositions, useLiveEntropy, usePublisherRadar } from './hooks';
+import { usePriceFeeds, useAgentLogs, useLiveRiskMetrics, useAgentState, useLivePositions, useLiveEntropy, usePublisherRadar, useWalletSecurity } from './hooks';
 
-export default function App() {
+// ── Inner App (inside WalletProvider so hooks can use wallet context) ──
+function AppInner() {
   const { feeds, updatedId, connectionStatus, dataSource } = usePriceFeeds();
   const agentState = useAgentState();
   const { logs, addLog } = useAgentLogs(3500, feeds);
@@ -27,8 +31,11 @@ export default function App() {
   const riskMetrics = useLiveRiskMetrics(feeds, positions);
   const { simulations, entropyStatus, latestSeed } = useLiveEntropy(feeds, positions);
   const publisherRadar = usePublisherRadar(feeds);
+  const { security, analyses, dismissAlert, dismissAll, rescan } = useWalletSecurity(addLog);
+  const { publicKey, connected } = useWallet();
   const [latency, setLatency] = useState(0.8);
   const [reportOpen, setReportOpen] = useState(false);
+  const [securityModalOpen, setSecurityModalOpen] = useState(false);
 
   // Simulate fluctuating latency indicator
   useEffect(() => {
@@ -54,8 +61,15 @@ export default function App() {
   const criticalPosition = positions.find(p => p.healthFactor < 1.0);
   const criticalPrice = criticalPosition?.currentPrice;
 
+  // Auto-open security modal on critical alerts
+  const criticalAlerts = security.alerts.filter(a => a.level === 'critical' && !a.dismissed);
+  useEffect(() => {
+    if (criticalAlerts.length > 0 && !securityModalOpen) {
+      setSecurityModalOpen(true);
+    }
+  }, [criticalAlerts.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <WalletProvider>
     <div className={`min-h-screen bg-pyth-bg grid-bg ${isCritical ? 'danger-pulse' : ''}`}>
       {/* Background gradient orbs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
@@ -159,7 +173,7 @@ export default function App() {
           </ErrorBoundary>
         </motion.div>
 
-        {/* Bottom Row: Positions + Entropy */}
+        {/* Bottom Row: Positions + Entropy + Wallet Security */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -180,6 +194,27 @@ export default function App() {
             </ErrorBoundary>
           </motion.div>
         </div>
+
+        {/* Wallet Security Monitor (Full Width) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.75 }}
+          role="region"
+          aria-label="Wallet Security"
+        >
+          <ErrorBoundary>
+            <WalletSecurityPanel
+              security={security}
+              analyses={analyses}
+              isConnected={connected}
+              walletAddress={publicKey?.toBase58()}
+              onDismissAlert={dismissAlert}
+              onDismissAll={dismissAll}
+              onRescan={rescan}
+            />
+          </ErrorBoundary>
+        </motion.div>
 
         {/* Footer */}
         <motion.footer
@@ -219,7 +254,24 @@ export default function App() {
         isOpen={reportOpen}
         onClose={() => setReportOpen(false)}
       />
+
+      {/* Security Alert Modal */}
+      <SecurityAlertModal
+        alerts={security.alerts}
+        isOpen={securityModalOpen}
+        onClose={() => setSecurityModalOpen(false)}
+        onDismiss={dismissAlert}
+        onDismissAll={() => { dismissAll(); setSecurityModalOpen(false); }}
+      />
     </div>
+  );
+}
+
+// ── Root App wrapper (provides wallet context) ──
+export default function App() {
+  return (
+    <WalletProvider>
+      <AppInner />
     </WalletProvider>
   );
 }

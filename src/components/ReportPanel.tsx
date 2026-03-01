@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, Download, X, Printer, Shield, TrendingUp, AlertTriangle, Zap } from 'lucide-react';
+import { FileText, Download, X, Printer, Shield, TrendingUp, AlertTriangle, Zap, FileJson, FileSpreadsheet, Code2 } from 'lucide-react';
 import type { PriceFeed, Position, RiskMetrics, EntropySimulation } from '../types';
 
 interface ReportPanelProps {
@@ -215,22 +215,196 @@ function generateReportHTML(
 </html>`;
 }
 
-export default function ReportPanel({ feeds, positions, riskMetrics, simulations, isOpen, onClose }: ReportPanelProps) {
-  const [generating, setGenerating] = useState(false);
+// ── JSON Report Generator ──
+function generateReportJSON(
+  feeds: PriceFeed[],
+  positions: Position[],
+  riskMetrics: RiskMetrics,
+  simulations: EntropySimulation[]
+): string {
+  const now = new Date();
+  const totalValue = positions.reduce((s, p) => s + p.size * p.currentPrice, 0);
+  const totalPnl = positions.reduce((s, p) => s + p.pnl, 0);
 
-  const handleDownloadHTML = () => {
-    setGenerating(true);
-    const html = generateReportHTML(feeds, positions, riskMetrics, simulations);
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `sentinel-1-report-${new Date().toISOString().slice(0, 10)}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    setTimeout(() => setGenerating(false), 500);
+  const report = {
+    meta: {
+      generator: 'SENTINEL-1 — Autonomous Risk Warden',
+      generatedAt: now.toISOString(),
+      dataSource: 'Pyth Hermes (Live)',
+      version: '1.0.0',
+    },
+    riskAssessment: {
+      overallScore: Math.round(riskMetrics.overallScore * 100) / 100,
+      level: getRiskLabel(riskMetrics.overallScore),
+      trend: riskMetrics.trend,
+      volatilityIndex: Math.round(riskMetrics.volatilityIndex * 100) / 100,
+      correlationRisk: Math.round(riskMetrics.correlationRisk * 100) / 100,
+      liquidationProximity: Math.round(riskMetrics.liquidationProximity * 100) / 100,
+      entropyHealth: Math.round(riskMetrics.entropyHealth * 100) / 100,
+    },
+    portfolio: {
+      totalValue: Math.round(totalValue * 100) / 100,
+      unrealizedPnl: Math.round(totalPnl * 100) / 100,
+      positionCount: positions.length,
+    },
+    priceFeeds: feeds.map(f => ({
+      symbol: f.symbol,
+      name: f.name,
+      price: f.price,
+      changePercent24h: Math.round(f.changePercent24h * 100) / 100,
+      confidence: f.confidence,
+      high24h: f.high24h,
+      low24h: f.low24h,
+      emaPrice: f.emaPrice,
+      publishTime: f.publishTime,
+    })),
+    positions: positions.map(p => ({
+      asset: p.asset,
+      side: p.side,
+      size: p.size,
+      leverage: p.leverage,
+      entryPrice: p.entryPrice,
+      currentPrice: p.currentPrice,
+      pnl: Math.round(p.pnl * 100) / 100,
+      pnlPercent: Math.round(p.pnlPercent * 100) / 100,
+      healthFactor: Math.round(p.healthFactor * 100) / 100,
+    })),
+    stressTests: simulations.map(s => ({
+      scenario: s.scenario,
+      probability: Math.round(s.probability * 10000) / 10000,
+      impact: s.impact,
+      status: s.status,
+      recommendedAction: s.recommendedAction,
+      entropySeed: s.entropySeedShort ?? null,
+      entropyChain: s.entropyChain ?? null,
+      isLiveEntropy: s.entropyIsLive ?? false,
+    })),
+  };
+
+  return JSON.stringify(report, null, 2);
+}
+
+// ── CSV Report Generator ──
+function generateReportCSV(
+  feeds: PriceFeed[],
+  positions: Position[],
+  riskMetrics: RiskMetrics,
+  simulations: EntropySimulation[]
+): string {
+  const now = new Date();
+  const totalValue = positions.reduce((s, p) => s + p.size * p.currentPrice, 0);
+  const totalPnl = positions.reduce((s, p) => s + p.pnl, 0);
+  const lines: string[] = [];
+
+  const esc = (v: string | number) => {
+    const str = String(v);
+    return str.includes(',') || str.includes('"') || str.includes('\n')
+      ? `"${str.replace(/"/g, '""')}"`
+      : str;
+  };
+
+  // Header info
+  lines.push('SENTINEL-1 Risk Report');
+  lines.push(`Generated,${now.toISOString()}`);
+  lines.push(`Data Source,Pyth Hermes (Live)`);
+  lines.push('');
+
+  // Risk Assessment
+  lines.push('=== RISK ASSESSMENT ===');
+  lines.push('Metric,Value');
+  lines.push(`Overall Score,${riskMetrics.overallScore.toFixed(1)}`);
+  lines.push(`Risk Level,${getRiskLabel(riskMetrics.overallScore)}`);
+  lines.push(`Trend,${riskMetrics.trend}`);
+  lines.push(`Volatility Index,${riskMetrics.volatilityIndex.toFixed(1)}%`);
+  lines.push(`Correlation Risk,${riskMetrics.correlationRisk.toFixed(1)}%`);
+  lines.push(`Liquidation Proximity,${riskMetrics.liquidationProximity.toFixed(1)}%`);
+  lines.push(`Entropy Health,${riskMetrics.entropyHealth.toFixed(1)}%`);
+  lines.push('');
+
+  // Portfolio Summary
+  lines.push('=== PORTFOLIO SUMMARY ===');
+  lines.push(`Total Value,$${totalValue.toFixed(2)}`);
+  lines.push(`Unrealized PnL,$${totalPnl.toFixed(2)}`);
+  lines.push(`Position Count,${positions.length}`);
+  lines.push('');
+
+  // Price Feeds
+  lines.push('=== PRICE FEEDS ===');
+  lines.push('Symbol,Price,24h Change %,Confidence,High 24h,Low 24h,EMA Price');
+  for (const f of feeds) {
+    lines.push([
+      esc(f.symbol), f.price, f.changePercent24h.toFixed(2),
+      f.confidence, f.high24h, f.low24h, f.emaPrice,
+    ].join(','));
+  }
+  lines.push('');
+
+  // Positions
+  lines.push('=== POSITIONS ===');
+  lines.push('Asset,Side,Size,Leverage,Entry Price,Current Price,PnL ($),PnL (%),Health Factor');
+  for (const p of positions) {
+    lines.push([
+      esc(p.asset), p.side, p.size, `${p.leverage}x`,
+      p.entryPrice, p.currentPrice, p.pnl.toFixed(2),
+      p.pnlPercent.toFixed(2), p.healthFactor.toFixed(2),
+    ].join(','));
+  }
+  lines.push('');
+
+  // Stress Tests
+  lines.push('=== ENTROPY STRESS TESTS ===');
+  lines.push('Scenario,Probability,Impact ($),Status,Recommended Action');
+  for (const s of simulations) {
+    lines.push([
+      esc(s.scenario), (s.probability * 100).toFixed(1) + '%',
+      s.impact, s.status, esc(s.recommendedAction),
+    ].join(','));
+  }
+
+  return lines.join('\n');
+}
+
+// ── Download helper ──
+function downloadFile(content: string, filename: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export default function ReportPanel({ feeds, positions, riskMetrics, simulations, isOpen, onClose }: ReportPanelProps) {
+  const [generating, setGenerating] = useState<string | null>(null);
+
+  const dateSuffix = new Date().toISOString().slice(0, 10);
+
+  const handleDownload = (format: 'html' | 'json' | 'csv') => {
+    setGenerating(format);
+    try {
+      switch (format) {
+        case 'html': {
+          const html = generateReportHTML(feeds, positions, riskMetrics, simulations);
+          downloadFile(html, `sentinel-1-report-${dateSuffix}.html`, 'text/html');
+          break;
+        }
+        case 'json': {
+          const json = generateReportJSON(feeds, positions, riskMetrics, simulations);
+          downloadFile(json, `sentinel-1-report-${dateSuffix}.json`, 'application/json');
+          break;
+        }
+        case 'csv': {
+          const csv = generateReportCSV(feeds, positions, riskMetrics, simulations);
+          downloadFile(csv, `sentinel-1-report-${dateSuffix}.csv`, 'text/csv');
+          break;
+        }
+      }
+    } finally {
+      setTimeout(() => setGenerating(null), 500);
+    }
   };
 
   const handlePrint = () => {
@@ -338,30 +512,60 @@ export default function ReportPanel({ feeds, positions, riskMetrics, simulations
             </div>
 
             {/* Actions */}
-            <div className="flex gap-3 px-5 py-4 border-t border-pyth-border bg-pyth-bg/50">
+            <div className="px-5 py-4 border-t border-pyth-border bg-pyth-bg/50 space-y-2">
+              {/* Download formats */}
+              <div className="grid grid-cols-3 gap-2">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => handleDownload('json')}
+                  disabled={generating !== null}
+                  className="flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-xl
+                    bg-pyth-green/10 border border-pyth-green/20 text-pyth-green
+                    hover:bg-pyth-green/20 hover:border-pyth-green/40
+                    disabled:opacity-50 transition-all font-mono text-[10px] font-semibold"
+                >
+                  <FileJson className="w-4 h-4" />
+                  {generating === 'json' ? 'Saving...' : 'JSON'}
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => handleDownload('csv')}
+                  disabled={generating !== null}
+                  className="flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-xl
+                    bg-pyth-yellow/10 border border-pyth-yellow/20 text-pyth-yellow
+                    hover:bg-pyth-yellow/20 hover:border-pyth-yellow/40
+                    disabled:opacity-50 transition-all font-mono text-[10px] font-semibold"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  {generating === 'csv' ? 'Saving...' : 'CSV'}
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => handleDownload('html')}
+                  disabled={generating !== null}
+                  className="flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-xl
+                    bg-pyth-purple/10 border border-pyth-purple/20 text-pyth-purple
+                    hover:bg-pyth-purple/20 hover:border-pyth-purple/40
+                    disabled:opacity-50 transition-all font-mono text-[10px] font-semibold"
+                >
+                  <Code2 className="w-4 h-4" />
+                  {generating === 'html' ? 'Saving...' : 'HTML'}
+                </motion.button>
+              </div>
+              {/* Print */}
               <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleDownloadHTML}
-                disabled={generating}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
-                  bg-pyth-purple/20 border border-pyth-purple/30 text-pyth-purple
-                  hover:bg-pyth-purple/30 hover:border-pyth-purple/50
-                  disabled:opacity-50 transition-all font-mono text-xs font-semibold"
-              >
-                <Download className="w-4 h-4" />
-                {generating ? 'Generating...' : 'Download HTML'}
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
                 onClick={handlePrint}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl
                   bg-pyth-cyan/10 border border-pyth-cyan/20 text-pyth-cyan
                   hover:bg-pyth-cyan/20 hover:border-pyth-cyan/40
-                  transition-all font-mono text-xs font-semibold"
+                  transition-all font-mono text-[10px] font-semibold"
               >
-                <Printer className="w-4 h-4" />
+                <Printer className="w-3.5 h-3.5" />
                 Print / PDF
               </motion.button>
             </div>

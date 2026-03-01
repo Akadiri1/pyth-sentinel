@@ -909,3 +909,198 @@ export function usePublisherRadar(feeds: PriceFeed[]): PublisherRadarData {
     setSelectedFeed,
   };
 }
+
+// ── Wallet Security Monitoring ──
+// Polls connected wallet's recent transactions and flags suspicious activity.
+
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { LAMPORTS_PER_SOL } from '@solana/web3.js';
+import {
+  analyzeWalletTransactions,
+  computeSecurityScore,
+  type SecurityAlert,
+  type WalletSecurityState,
+  type TransactionAnalysis,
+  type ThreatLevel,
+} from './services/walletSecurityService';
+
+const EMPTY_SECURITY_STATE: WalletSecurityState = {
+  overallRisk: 'safe',
+  securityScore: 100,
+  alerts: [],
+  recentTxCount: 0,
+  lastScanTime: 0,
+  isScanning: false,
+  totalOutflow24h: 0,
+  totalInflow24h: 0,
+  uniqueInteractions: 0,
+  dustTokenCount: 0,
+};
+
+export function useWalletSecurity(
+  addLog?: (log: Omit<AgentLog, 'id' | 'timestamp'>) => void,
+  pollInterval: number = 45_000, // poll every 45s
+) {
+  const { publicKey, connected } = useWallet();
+  const { connection } = useConnection();
+  const [state, setState] = useState<WalletSecurityState>(EMPTY_SECURITY_STATE);
+  const [analyses, setAnalyses] = useState<TransactionAnalysis[]>([]);
+  const addLogRef = useRef(addLog);
+  const prevAlertIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => { addLogRef.current = addLog; }, [addLog]);
+
+  // Reset when wallet disconnects
+  useEffect(() => {
+    if (!connected || !publicKey) {
+      setState(EMPTY_SECURITY_STATE);
+      setAnalyses([]);
+      prevAlertIdsRef.current = new Set();
+    }
+  }, [connected, publicKey]);
+
+  // Core scan function
+  const runScan = useCallback(async () => {
+    if (!publicKey || !connected) return;
+
+    setState(prev => ({ ...prev, isScanning: true }));
+
+    try {
+      // Get balance for threshold calculations
+      const lamports = await connection.getBalance(publicKey);
+      const balanceSol = lamports / LAMPORTS_PER_SOL;
+
+      // Run transaction analysis
+      const { analyses: txAnalyses, alerts: newAlerts } =
+        await analyzeWalletTransactions(connection, publicKey.toBase58(), balanceSol, 50);
+
+      setAnalyses(txAnalyses);
+
+      // Merge alerts (keep dismissed state from previous)
+      setState(prev => {
+        const existingMap = new Map(prev.alerts.map(a => [a.id, a]));
+        const merged: SecurityAlert[] = [];
+        const seenIds = new Set<string>();
+
+        for (const alert of newAlerts) {
+          if (seenIds.has(alert.id)) continue;
+          seenIds.add(alert.id);
+          const existing = existingMap.get(alert.id);
+          merged.push(existing ? { ...alert, dismissed: existing.dismissed } : alert);
+        }
+
+        // Keep old alerts that weren't in the new scan (they might still be relevant)
+        for (const old of prev.alerts) {
+          if (!seenIds.has(old.id)) {
+            merged.push(old);
+            seenIds.add(old.id);
+          }
+        }
+
+        const { score, level } = computeSecurityScore(merged);
+
+        // Log NEW alerts to reasoning console
+        const prevIds = prevAlertIdsRef.current;
+        for (const alert of merged) {
+          if (!prevIds.has(alert.id) && !alert.dismissed) {
+            const logType = alert.level === 'critical' ? 'critical'
+              : alert.level === 'warning' ? 'warning' : 'info';
+            addLogRef.current?.({
+              type: logType,
+              source: 'risk-engine',
+              message: `[WALLET SECURITY] ${alert.title}: ${alert.description.slice(0, 180)}`,
+            });
+          }
+        }
+        prevAlertIdsRef.current = new Set(merged.map(a => a.id));
+
+        // Compute 24h flow stats
+        const oneDayAgo = Date.now() - 24 * 60 * 60_000;
+        const recentTxs = txAnalyses.filter(t => (t.timestamp * 1000) > oneDayAgo);
+        const totalOutflow = recentTxs
+          .filter(t => t.type === 'outflow')
+          .reduce((s, t) => s + t.amount, 0);
+        const totalInflow = recentTxs
+          .filter(t => t.type === 'inflow')
+          .reduce((s, t) => s + t.amount, 0);
+        const uniqueAddrs = new Set(txAnalyses.map(t => t.counterparty).filter(Boolean));
+        const dustCount = txAnalyses.filter(
+          t => t.type === 'inflow' && t.amount > 0 && t.amount < 0.001
+        ).length;
+
+        return {
+          overallRisk: level,
+          securityScore: score,
+          alerts: merged,
+          recentTxCount: txAnalyses.length,
+          lastScanTime: Date.now(),
+          isScanning: false,
+          totalOutflow24h: totalOutflow,
+          totalInflow24h: totalInflow,
+          uniqueInteractions: uniqueAddrs.size,
+          dustTokenCount: dustCount,
+        };
+      });
+
+    } catch (err) {
+      console.warn('[WalletSecurity] Scan failed:', err);
+      setState(prev => ({ ...prev, isScanning: false }));
+    }
+  }, [publicKey, connected, connection]);
+
+  // Initial scan on connect + periodic polling
+  useEffect(() => {
+    if (!publicKey || !connected) return;
+
+    // Initial scan
+    runScan();
+
+    // Periodic polling
+    const timer = setInterval(runScan, pollInterval);
+    return () => clearInterval(timer);
+  }, [publicKey, connected, runScan, pollInterval]);
+
+  // Dismiss an alert
+  const dismissAlert = useCallback((alertId: string) => {
+    setState(prev => {
+      const updated = prev.alerts.map(a =>
+        a.id === alertId ? { ...a, dismissed: true } : a
+      );
+      const { score, level } = computeSecurityScore(updated);
+      return { ...prev, alerts: updated, securityScore: score, overallRisk: level };
+    });
+  }, []);
+
+  // Dismiss all
+  const dismissAll = useCallback(() => {
+    setState(prev => {
+      const updated = prev.alerts.map(a => ({ ...a, dismissed: true }));
+      return { ...prev, alerts: updated, securityScore: 100, overallRisk: 'safe' as ThreatLevel };
+    });
+  }, []);
+
+  // Force re-scan
+  const rescan = useCallback(() => {
+    runScan();
+  }, [runScan]);
+
+  // Browser notification for critical alerts
+  useEffect(() => {
+    const criticals = state.alerts.filter(a => a.level === 'critical' && !a.dismissed);
+    if (criticals.length > 0 && 'Notification' in window && Notification.permission === 'granted') {
+      const latest = criticals[0];
+      new Notification('⚠️ SENTINEL-1 Security Alert', {
+        body: latest.title + ': ' + latest.description.slice(0, 120),
+        icon: '/sentinel.svg',
+      });
+    }
+  }, [state.alerts]);
+
+  return {
+    security: state,
+    analyses,
+    dismissAlert,
+    dismissAll,
+    rescan,
+  };
+}
