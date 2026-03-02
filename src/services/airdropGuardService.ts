@@ -233,6 +233,30 @@ export async function scanTokenAccounts(
       // Resolve token metadata (symbol / name)
       const meta = resolveTokenMeta(mint, jupMap);
 
+      // ── Risk Check 5: Suspicious token name (airdrop/claim/free/URL) ──
+      if (meta.name && isNameSuspicious(meta.name)) {
+        riskReasons.push(`Suspicious token name pattern: "${meta.name}"`);
+        if (riskLevel === 'safe' || riskLevel === 'caution') riskLevel = 'suspicious';
+
+        alerts.push({
+          id: `airdrop-name-${mint.slice(0, 8)}`,
+          timestamp: now,
+          type: 'scam_token',
+          severity: 'suspicious',
+          title: '⚠️ SUSPICIOUS TOKEN NAME',
+          description: `Token "${meta.name}" (${meta.symbol}) has a name that matches common scam patterns (airdrop lures, phishing URLs). Do NOT click any links or interact with this token.`,
+          tokenMint: mint,
+          tokenAccount: tokenPubkey.toBase58(),
+          actionRequired: false,
+        });
+      }
+
+      // ── Risk Check 6: Suspicious symbol (URLs, suspicious keywords) ──
+      if (meta.symbol && meta.symbol !== 'UNKNOWN' && isNameSuspicious(meta.symbol)) {
+        riskReasons.push(`Suspicious token symbol: "${meta.symbol}"`);
+        if (riskLevel === 'safe' || riskLevel === 'caution') riskLevel = 'suspicious';
+      }
+
       accounts.push({
         mint,
         address: tokenPubkey.toBase58(),
@@ -347,6 +371,7 @@ export function computeAirdropRiskScore(
 
   let deductions = 0;
 
+  // Deduct for alerts
   for (const alert of alerts) {
     switch (alert.severity) {
       case 'dangerous': deductions += 25; break;
@@ -355,9 +380,24 @@ export function computeAirdropRiskScore(
     }
   }
 
-  // Extra deductions for active delegations
+  // Deduct for active delegations
   const delegations = accounts.filter(a => a.delegate !== null);
   deductions += delegations.length * 15;
+
+  // Deduct for per-token risk levels (catches tokens w/o explicit alerts)
+  for (const acct of accounts) {
+    switch (acct.riskLevel) {
+      case 'dangerous': deductions += 10; break;
+      case 'suspicious': deductions += 6; break;
+      case 'caution': deductions += 2; break;
+    }
+  }
+
+  // Ratio of unknown tokens to total tokens
+  const unknownCount = accounts.filter(a => a.symbol === 'UNKNOWN').length;
+  if (accounts.length > 0 && unknownCount / accounts.length > 0.5) {
+    deductions += 10; // >50% unknown tokens is a red flag
+  }
 
   const score = Math.max(0, 100 - deductions);
   const level: AirdropRisk =

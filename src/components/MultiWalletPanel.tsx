@@ -17,6 +17,10 @@ import {
   Search,
   Copy,
   CheckCircle2,
+  Eye,
+  EyeOff,
+  Coins,
+  ExternalLink,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell } from 'recharts';
 import {
@@ -26,6 +30,7 @@ import {
   airdropRiskLabel,
   type AirdropGuardState,
   type AirdropRisk,
+  type TokenAccountInfo,
 } from '../services/airdropGuardService';
 import InfoTooltip from './InfoTooltip';
 
@@ -262,7 +267,7 @@ export default memo(function MultiWalletPanel() {
             {chartData.length >= 2 && (
               <div className="mb-4">
                 <h3 className="font-mono text-[10px] text-pyth-text-muted mb-2 uppercase">
-                  Risk Score Comparison
+                  Safety Score Comparison
                 </h3>
                 <div className="h-40">
                   <ResponsiveContainer width="100%" height="100%">
@@ -280,7 +285,7 @@ export default memo(function MultiWalletPanel() {
                         axisLine={{ stroke: 'rgba(171,135,255,0.1)' }}
                       />
                       <Tooltip content={<ComparisonTooltip />} />
-                      <Bar dataKey="riskScore" name="Risk Score" radius={[4, 4, 0, 0]}>
+                      <Bar dataKey="riskScore" name="Safety Score" radius={[4, 4, 0, 0]}>
                         {chartData.map((entry, i) => {
                           const score = entry.riskScore;
                           const color = score >= 80 ? '#00FFA3' : score >= 60 ? '#FFD166' : score >= 35 ? '#FF8C42' : '#FF4162';
@@ -322,7 +327,7 @@ export default memo(function MultiWalletPanel() {
               <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
                   {
-                    label: 'Avg Risk Score',
+                    label: 'Avg Safety',
                     value: (wallets.filter(w => w.state).reduce((s, w) => s + (w.state?.riskScore || 0), 0) / scannedCount).toFixed(0),
                     color: 'text-pyth-purple',
                   },
@@ -372,6 +377,7 @@ function WalletCard({
   isCopied: boolean;
 }) {
   const { state, isScanning, error, solBalance } = wallet;
+  const [showTokens, setShowTokens] = useState(false);
   const riskLevel: AirdropRisk = state
     ? state.riskScore >= 80 ? 'safe'
     : state.riskScore >= 60 ? 'caution'
@@ -426,8 +432,9 @@ function WalletCard({
         </div>
       ) : state ? (
         <div>
-          {/* Risk score */}
-          <div className="flex items-center gap-2 mb-2">
+          {/* Safety score */}
+          <div className="flex items-center gap-2 mb-1">
+            <span className="font-mono text-[8px] text-pyth-text-muted uppercase">Safety</span>
             <div className="flex-1 h-2 bg-pyth-surface rounded-full overflow-hidden">
               <div
                 className="h-full rounded-full transition-all duration-500"
@@ -443,7 +450,7 @@ function WalletCard({
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-2 gap-1.5 text-center">
+          <div className="grid grid-cols-2 gap-1.5 text-center mb-2">
             <div className="bg-pyth-surface/30 rounded p-1.5">
               <div className="font-mono text-[8px] text-pyth-text-muted uppercase">SOL</div>
               <div className="font-mono text-[10px] text-pyth-text font-bold">
@@ -468,8 +475,8 @@ function WalletCard({
             </div>
           </div>
 
-          {/* Risk label */}
-          <div className="mt-2 flex items-center justify-between">
+          {/* Risk label + token toggle */}
+          <div className="flex items-center justify-between mb-2">
             <span
               className="font-mono text-[9px] font-bold px-1.5 py-0.5 rounded-full"
               style={{
@@ -479,10 +486,92 @@ function WalletCard({
             >
               {airdropRiskLabel(riskLevel)}
             </span>
-            <span className="font-mono text-[8px] text-pyth-text-muted/60">
-              {state.lastScanTime > 0 ? new Date(state.lastScanTime).toLocaleTimeString() : ''}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[8px] text-pyth-text-muted/60">
+                {state.lastScanTime > 0 ? new Date(state.lastScanTime).toLocaleTimeString() : ''}
+              </span>
+              {state.tokenAccounts.length > 0 && (
+                <button
+                  onClick={() => setShowTokens(!showTokens)}
+                  className="flex items-center gap-0.5 font-mono text-[8px] text-pyth-cyan hover:text-pyth-text transition-colors"
+                  title={showTokens ? 'Hide tokens' : 'Show tokens'}
+                >
+                  {showTokens ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  {showTokens ? 'Hide' : 'Tokens'}
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* Alerts list (if any) */}
+          {state.alerts.length > 0 && (
+            <div className="mb-2 space-y-1">
+              {state.alerts.slice(0, 3).map(alert => (
+                <div
+                  key={alert.id}
+                  className={`rounded px-2 py-1 border text-left ${
+                    alert.severity === 'dangerous'
+                      ? 'bg-pyth-red/5 border-pyth-red/10'
+                      : alert.severity === 'suspicious'
+                      ? 'bg-pyth-yellow/5 border-pyth-yellow/10'
+                      : 'bg-pyth-surface/30 border-pyth-border'
+                  }`}
+                >
+                  <div className="font-mono text-[8px] font-bold text-pyth-text truncate">{alert.title}</div>
+                  <div className="font-mono text-[7px] text-pyth-text-muted truncate">{alert.description.slice(0, 100)}</div>
+                </div>
+              ))}
+              {state.alerts.length > 3 && (
+                <div className="font-mono text-[8px] text-pyth-text-muted text-center">
+                  +{state.alerts.length - 3} more alert{state.alerts.length - 3 > 1 ? 's' : ''}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Expandable Token List */}
+          <AnimatePresence>
+            {showTokens && state.tokenAccounts.length > 0 && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <div className="border-t border-pyth-border pt-2 mt-1">
+                  <div className="flex items-center gap-1 mb-1.5">
+                    <Coins className="w-3 h-3 text-pyth-text-muted" />
+                    <span className="font-mono text-[8px] text-pyth-text-muted uppercase">
+                      Token Accounts ({state.tokenAccounts.length})
+                    </span>
+                  </div>
+                  <div className="space-y-1 max-h-48 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-pyth-border">
+                    {state.tokenAccounts
+                      .sort((a, b) => {
+                        // Sort: dangerous first, then suspicious, caution, safe
+                        const order: Record<string, number> = { dangerous: 0, suspicious: 1, caution: 2, safe: 3 };
+                        return (order[a.riskLevel] ?? 3) - (order[b.riskLevel] ?? 3);
+                      })
+                      .map(token => (
+                        <TokenRow key={token.address} token={token} />
+                      ))}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Rescan button */}
+          <button
+            onClick={onScan}
+            className="w-full mt-2 flex items-center justify-center gap-1 font-mono text-[9px] py-1 rounded
+              bg-pyth-surface/40 border border-pyth-border text-pyth-text-muted
+              hover:text-pyth-cyan hover:border-pyth-cyan/20 transition-all"
+          >
+            <RefreshCw className="w-2.5 h-2.5" />
+            Rescan
+          </button>
         </div>
       ) : (
         <div className="text-center py-3">
@@ -500,6 +589,76 @@ function WalletCard({
   );
 }
 
+// ── Token Row ──
+
+const riskBadgeStyles: Record<AirdropRisk, string> = {
+  safe: 'bg-pyth-green/10 text-pyth-green border-pyth-green/20',
+  caution: 'bg-pyth-yellow/10 text-pyth-yellow border-pyth-yellow/20',
+  suspicious: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+  dangerous: 'bg-pyth-red/10 text-pyth-red border-pyth-red/20',
+};
+
+function TokenRow({ token }: { token: TokenAccountInfo }) {
+  const solscanUrl = `https://solscan.io/token/${token.mint}`;
+
+  return (
+    <div
+      className={`flex items-center gap-2 rounded px-2 py-1.5 border ${
+        token.riskLevel === 'dangerous'
+          ? 'bg-pyth-red/5 border-pyth-red/10'
+          : token.riskLevel === 'suspicious'
+          ? 'bg-orange-500/5 border-orange-500/10'
+          : token.riskLevel === 'caution'
+          ? 'bg-pyth-yellow/5 border-pyth-yellow/10'
+          : 'bg-pyth-surface/20 border-pyth-border'
+      }`}
+    >
+      {/* Token info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[9px] font-bold text-pyth-text truncate">
+            {token.symbol || 'UNKNOWN'}
+          </span>
+          <span className={`font-mono text-[7px] font-bold px-1 py-0 rounded border ${riskBadgeStyles[token.riskLevel]}`}>
+            {token.riskLevel.toUpperCase()}
+          </span>
+        </div>
+        <div className="font-mono text-[8px] text-pyth-text-muted truncate">
+          {token.name || `${token.mint.slice(0, 6)}...${token.mint.slice(-4)}`}
+        </div>
+        {token.riskReasons.length > 0 && (
+          <div className="font-mono text-[7px] text-pyth-text-muted/60 mt-0.5 truncate">
+            ⚠ {token.riskReasons[0]}
+          </div>
+        )}
+      </div>
+
+      {/* Balance */}
+      <div className="text-right shrink-0">
+        <div className="font-mono text-[9px] text-pyth-text font-bold">
+          {token.balance > 0 ? (token.balance < 0.001 ? '<0.001' : token.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })) : '0'}
+        </div>
+        {token.delegate && (
+          <div className="font-mono text-[7px] text-pyth-red">
+            🔓 delegated
+          </div>
+        )}
+      </div>
+
+      {/* Solscan link */}
+      <a
+        href={solscanUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="shrink-0 p-0.5 text-pyth-text-muted/40 hover:text-pyth-cyan transition-colors"
+        title="View on Solscan"
+      >
+        <ExternalLink className="w-2.5 h-2.5" />
+      </a>
+    </div>
+  );
+}
+
 // ── Comparison Tooltip ──
 
 function ComparisonTooltip({ active, payload, label }: {
@@ -513,7 +672,7 @@ function ComparisonTooltip({ active, payload, label }: {
     <div className="bg-pyth-surface/95 backdrop-blur-md border border-pyth-border rounded-lg p-2 shadow-xl">
       <p className="font-mono text-[10px] text-pyth-text font-bold mb-1">{label}</p>
       <div className="space-y-0.5">
-        <div className="font-mono text-[9px] text-pyth-text-muted">Risk Score: <span className="text-pyth-text font-bold">{d.riskScore}</span></div>
+        <div className="font-mono text-[9px] text-pyth-text-muted">Safety Score: <span className="text-pyth-text font-bold">{d.riskScore}</span></div>
         <div className="font-mono text-[9px] text-pyth-text-muted">Tokens: <span className="text-pyth-text">{d.tokens}</span></div>
         <div className="font-mono text-[9px] text-pyth-text-muted">Delegations: <span className="text-pyth-text">{d.delegations}</span></div>
         <div className="font-mono text-[9px] text-pyth-text-muted">Alerts: <span className="text-pyth-text">{d.alerts}</span></div>
