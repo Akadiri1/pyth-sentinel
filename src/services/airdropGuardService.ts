@@ -133,6 +133,76 @@ export const EMPTY_AIRDROP_STATE: AirdropGuardState = {
 // ── Core Scanning Functions ──
 
 /**
+ * Normalize a pubkey to a base58 string.
+ * Handles both PublicKey objects (from web3.js) and raw strings (from batch RPC).
+ */
+function pubkeyToString(pk: unknown): string {
+  if (typeof pk === 'string') return pk;
+  if (pk && typeof pk === 'object' && 'toBase58' in pk) return (pk as PublicKey).toBase58();
+  return String(pk);
+}
+
+/**
+ * Send multiple JSON-RPC requests in a single HTTP POST (true batching).
+ * Counts as ONE request toward rate limits but executes all methods server-side.
+ * Much more efficient than firing parallel HTTP requests.
+ */
+async function batchRpcCall(
+  endpoint: string,
+  requests: Array<{ method: string; params: unknown[] }>,
+): Promise<unknown[]> {
+  const batch = requests.map((req, i) => ({
+    jsonrpc: '2.0' as const,
+    id: i + 1,
+    method: req.method,
+    params: req.params,
+  }));
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(batch),
+  });
+
+  if (!response.ok) {
+    throw new Error(`RPC batch HTTP ${response.status}`);
+  }
+
+  const results = await response.json();
+  const arr = Array.isArray(results) ? results : [results];
+  const sorted = (arr as Array<{ id: number; result?: unknown; error?: unknown }>)
+    .sort((a, b) => a.id - b.id);
+
+  return sorted.map(r => {
+    if (r.error) {
+      console.warn('[BatchRPC] Method error:', r.error);
+      return null;
+    }
+    return r.result ?? null;
+  });
+}
+
+/**
+ * Retry an async function with exponential backoff on 429 rate limit errors.
+ */
+async function retryRpc<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let delay = 1000;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      const isRateLimit = msg.includes('429') || msg.includes('Too Many') || msg.includes('rate');
+      if (!isRateLimit || i === maxRetries - 1) throw error;
+      console.warn(`[RetryRPC] Rate limited, waiting ${delay}ms (attempt ${i + 1}/${maxRetries})`);
+      await new Promise(res => setTimeout(res, delay));
+      delay *= 2;
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+
+/**
  * Analyze recent transaction history for signs of a sweeper bot or key compromise.
  * Key indicators:
  *  1. Rapid outflows after inflows (sweeper pattern)
@@ -140,7 +210,7 @@ export const EMPTY_AIRDROP_STATE: AirdropGuardState = {
  *  3. Near-zero SOL balance despite having token accounts
  *  4. High frequency of outbound transfers vs inbound
  *
- * Uses sequential fetches with delays to avoid public RPC 429 rate limits.
+ * Uses JSON-RPC batch requests to minimize rate-limit impact.
  */
 export async function detectSweepPatterns(
   connection: Connection,
@@ -167,30 +237,37 @@ export async function detectSweepPatterns(
     let outflowTxCount = 0;
     let inflowTxCount = 0;
     const transferTimestamps: { time: number; type: 'in' | 'out'; amount: number; destination?: string }[] = [];
-    let fetchedCount = 0;
-    let failCount = 0;
 
-    // Fetch transactions ONE AT A TIME with generous delays to avoid 429 rate limits
-    // Public Solana RPC aggressively rate-limits getParsedTransaction
-    const txsToFetch = signatures.slice(0, 6); // max 6 attempts
-    for (let i = 0; i < txsToFetch.length; i++) {
-      if (failCount >= 2 && fetchedCount >= 2) break; // Stop if rate limited and we have enough data
-      // Generous delay between requests (1s+) to avoid public RPC 429
-      if (i > 0) await new Promise(r => setTimeout(r, 1200));
+    // ── Batch-fetch transactions via JSON-RPC batch (5 per batch, 1.5s between) ──
+    // Filter to confirmed (non-errored) transactions for efficiency
+    const confirmedSigs = signatures.filter((s: any) => s.err === null).slice(0, 10);
+    const TXS_PER_BATCH = 5;
+    const BATCH_DELAY_MS = 1500;
+    const fetchedTxs: Array<Record<string, unknown>> = [];
 
-      let tx;
+    for (let batchStart = 0; batchStart < confirmedSigs.length; batchStart += TXS_PER_BATCH) {
+      if (batchStart > 0) await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
+      const chunk = confirmedSigs.slice(batchStart, batchStart + TXS_PER_BATCH);
       try {
-        tx = await connection.getParsedTransaction(txsToFetch[i].signature, {
-          maxSupportedTransactionVersion: 0,
-        });
-        fetchedCount++;
-      } catch (fetchErr) {
-        failCount++;
-        console.warn(`[SweepDetector] TX fetch ${i} failed (${failCount}):`, fetchErr);
-        // On rate limit, wait extra before next attempt
-        await new Promise(r => setTimeout(r, 2000));
-        continue;
+        const results = await retryRpc(() => batchRpcCall(
+          connection.rpcEndpoint,
+          chunk.map((sig: any) => ({
+            method: 'getTransaction',
+            params: [sig.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }],
+          })),
+        ));
+        for (const r of results) {
+          if (r && typeof r === 'object') fetchedTxs.push(r as Record<string, unknown>);
+        }
+      } catch {
+        console.warn('[SweepDetector] TX batch failed, using partial data');
+        break;
       }
+    }
+
+    // Analyze all fetched transactions
+    for (const txRaw of fetchedTxs) {
+      const tx = txRaw as any;
       if (!tx?.transaction) continue;
 
       const blockTime = (tx.blockTime ?? 0) * 1000;
@@ -237,7 +314,7 @@ export async function detectSweepPatterns(
       if (tx.meta) {
         const accountKeys = tx.transaction.message.accountKeys;
         const walletIdx = accountKeys.findIndex(
-          (k: { pubkey: PublicKey }) => k.pubkey.toBase58() === walletAddress
+          (k: any) => pubkeyToString(k.pubkey) === walletAddress
         );
         if (walletIdx >= 0) {
           const preBal = tx.meta.preBalances[walletIdx];
@@ -258,7 +335,7 @@ export async function detectSweepPatterns(
               }
             }
             if (maxGainIdx >= 0 && maxGain > 5000) {
-              const gainAddr = accountKeys[maxGainIdx].pubkey.toBase58();
+              const gainAddr = pubkeyToString(accountKeys[maxGainIdx].pubkey);
               // Only count if we didn't already detect this via parsed instructions
               if (!outflowDestinations.has(gainAddr)) {
                 outflowTxCount++;
@@ -371,7 +448,7 @@ export async function detectSweepPatterns(
 export async function scanTokenAccounts(
   connection: Connection,
   walletAddress: string,
-): Promise<{ accounts: TokenAccountInfo[]; alerts: AirdropAlert[]; isCompromised?: boolean; drainerAddress?: string; solBalance?: number }> {
+): Promise<{ accounts: TokenAccountInfo[]; alerts: AirdropAlert[]; isCompromised?: boolean; drainerAddress?: string; solBalance?: number; scanPartial?: boolean }> {
   const pubkey = new PublicKey(walletAddress);
   const accounts: TokenAccountInfo[] = [];
   const alerts: AirdropAlert[] = [];
@@ -379,35 +456,60 @@ export async function scanTokenAccounts(
   let isCompromised = false;
   let drainerAddress: string | undefined;
   let walletSolBalance: number | undefined;
+  let scanPartial = false;
 
   try {
-    // ── Step 1: Batch ALL essential RPC calls in ONE parallel request ──
-    // This avoids sequential rate-limiting from the free public RPC.
-    // We fetch: token accounts, SOL balance, tx signatures, AND Jupiter metadata.
-    const [tokenAccounts, jupMap, balanceLamports, signatures] = await Promise.all([
-      connection.getParsedTokenAccountsByOwner(
-        pubkey,
-        { programId: TOKEN_PROGRAM_ID },
-      ),
+    // ── Step 1: TRUE JSON-RPC batch — ONE HTTP POST for all Solana data ──
+    // Single HTTP request instead of multiple, stays well under rate limits.
+    // Jupiter metadata fetch runs in parallel (separate endpoint, not Solana RPC).
+    const endpoint = connection.rpcEndpoint;
+    const [batchResults, jupMap] = await Promise.all([
+      retryRpc(() => batchRpcCall(endpoint, [
+        {
+          method: 'getTokenAccountsByOwner',
+          params: [walletAddress, { programId: TOKEN_PROGRAM_ID.toString() }, { encoding: 'jsonParsed' }],
+        },
+        { method: 'getBalance', params: [walletAddress] },
+        { method: 'getSignaturesForAddress', params: [walletAddress, { limit: 100 }] },
+      ])),
       ensureJupiterTokenList(),
-      connection.getBalance(pubkey).catch(() => 0),
-      connection.getSignaturesForAddress(pubkey, { limit: 15 }).catch(() => []),
     ]);
 
-    walletSolBalance = balanceLamports / LAMPORTS_PER_SOL;
+    // Parse batch results safely
+    const tokenAccountsRaw = batchResults[0] as { value?: Array<{ pubkey: string; account: any }> } | null;
+    const balanceResult = batchResults[1] as { value?: number } | null;
+    const signaturesRaw = batchResults[2] as Array<{ signature: string; slot: number; err: unknown; blockTime?: number | null }> | null;
 
-    // ── Step 2: Quick compromise heuristic (NO extra RPC calls needed) ──
-    // If wallet has many transactions but near-zero balance, it's likely drained
+    // Convert raw token accounts — wrap pubkey strings as PublicKey objects
+    const tokenEntries = (tokenAccountsRaw?.value ?? []).map((entry: any) => ({
+      pubkey: new PublicKey(entry.pubkey),
+      account: entry.account,
+    }));
+    const balanceLamports = balanceResult?.value ?? 0;
+    walletSolBalance = balanceLamports / LAMPORTS_PER_SOL;
+    const signatures = signaturesRaw ?? [];
+
+    // ── Step 2: Enhanced compromise heuristic (NO extra RPC calls needed) ──
+    // Signals: balance, signature count, recent activity (24h), remaining tokens
     const sigCount = signatures.length;
+    const hasRecentActivity = sigCount > 0 && signatures[0]?.blockTime != null
+      && signatures[0].blockTime > (Date.now() / 1000 - 86400);
+    const hasNoTokens = tokenEntries.length === 0;
+
+    // Edge case: New/empty wallets with <2 txs are not flagged (score stays 100)
+    // High-activity legit wallets with >0.01 SOL are NOT flagged by heuristic alone
+    // (deep sweep in Step 3 can still detect patterns for those)
     if (walletSolBalance < 0.005 && sigCount >= 4) {
       isCompromised = true;
+      const recentNote = hasRecentActivity ? ' Activity detected within the last 24 hours — drain may be ongoing.' : '';
+      const tokenNote = hasNoTokens ? ' No token accounts remain.' : '';
       alerts.push({
         id: `sweep-high-activity-empty-${now}`,
         timestamp: now,
         type: 'key_compromise',
         severity: 'dangerous',
         title: '🔴 SUSPECTED COMPROMISE — HIGH ACTIVITY + EMPTY WALLET',
-        description: `This wallet has ${sigCount} transactions but only ${walletSolBalance.toFixed(6)} SOL remaining. This pattern is strongly associated with compromised wallets where a sweeper bot drains all incoming funds.`,
+        description: `This wallet has ${sigCount} transactions but only ${walletSolBalance.toFixed(6)} SOL remaining.${recentNote}${tokenNote} This pattern is strongly associated with compromised wallets where a sweeper bot drains all incoming funds.`,
         actionRequired: false,
       });
     }
@@ -423,11 +525,12 @@ export async function scanTokenAccounts(
         if (sweepResult.isCompromised) isCompromised = true;
         if (sweepResult.drainerAddress) drainerAddress = sweepResult.drainerAddress;
       } catch (sweepErr) {
+        scanPartial = true;
         console.warn('[AirdropGuard] Deep sweep analysis failed (rate limited), using heuristic only:', sweepErr);
       }
     }
 
-    for (const { pubkey: tokenPubkey, account } of tokenAccounts.value) {
+    for (const { pubkey: tokenPubkey, account } of tokenEntries) {
       const parsed = account.data as ParsedAccountData;
       const info = parsed.parsed?.info;
       if (!info) continue;
@@ -582,7 +685,7 @@ export async function scanTokenAccounts(
     console.warn('[AirdropGuard] Token scan failed:', err);
   }
 
-  return { accounts, alerts, isCompromised, drainerAddress, solBalance: walletSolBalance };
+  return { accounts, alerts, isCompromised, drainerAddress, solBalance: walletSolBalance, scanPartial };
 }
 
 /**

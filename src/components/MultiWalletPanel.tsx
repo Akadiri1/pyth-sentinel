@@ -1,7 +1,7 @@
 // ── Multi-Wallet Comparison Panel ──
 // Compare risk profiles across multiple Solana wallets side-by-side
 
-import { useState, useCallback, memo } from 'react';
+import { useState, useCallback, memo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey, Keypair } from '@solana/web3.js';
@@ -44,6 +44,7 @@ interface WalletProfile {
   solBalance?: number;
   isCompromised?: boolean;
   drainerAddress?: string;
+  scanPartial?: boolean;
 }
 
 const STORAGE_KEY = 'sentinel1_multi_wallets';
@@ -83,6 +84,7 @@ export default memo(function MultiWalletPanel() {
   const [copied, setCopied] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const [addWarning, setAddWarning] = useState<string | null>(null);
+  const scanCooldowns = useRef<Map<string, number>>(new Map());
 
   // ── Try to derive public key from a secret key ──
   const tryDeriveFromSecretKey = useCallback((input: string): { publicKey: string } | null => {
@@ -131,12 +133,17 @@ export default memo(function MultiWalletPanel() {
 
   // ── Scan a single wallet ──
   const scanWallet = useCallback(async (address: string) => {
+    // Rate limit: 30s cooldown between scans per wallet to prevent RPC spam
+    const lastScan = scanCooldowns.current.get(address) ?? 0;
+    if (Date.now() - lastScan < 30000) return;
+    scanCooldowns.current.set(address, Date.now());
+
     setWallets(prev => prev.map(w =>
       w.address === address ? { ...w, isScanning: true, error: undefined } : w
     ));
 
     try {
-      const { accounts, alerts, isCompromised, drainerAddress, solBalance: returnedBalance } = await scanTokenAccounts(connection, address);
+      const { accounts, alerts, isCompromised, drainerAddress, solBalance: returnedBalance, scanPartial } = await scanTokenAccounts(connection, address);
       const { score } = computeAirdropRiskScore(accounts, alerts);
 
       // Use SOL balance from scanTokenAccounts (already fetched there)
@@ -154,6 +161,7 @@ export default memo(function MultiWalletPanel() {
           solBalance,
           isCompromised,
           drainerAddress,
+          scanPartial,
           state: {
             isScanning: false,
             lastScanTime: Date.now(),
@@ -538,6 +546,16 @@ function WalletCard({
               <p className="font-mono text-[7px] text-pyth-red/60 mt-1">
                 🚫 DO NOT deposit any funds into this wallet. Transfer remaining assets to a new wallet with a fresh key pair.
               </p>
+            </div>
+          )}
+
+          {/* Partial scan indicator */}
+          {wallet.scanPartial && !isCompromised && (
+            <div className="mb-1.5 flex items-center gap-1 px-2 py-1 rounded bg-pyth-yellow/5 border border-pyth-yellow/10">
+              <AlertTriangle className="w-3 h-3 text-pyth-yellow shrink-0" />
+              <span className="font-mono text-[8px] text-pyth-yellow">
+                Partial Scan — RPC rate limited, heuristic result only.
+              </span>
             </div>
           )}
 
