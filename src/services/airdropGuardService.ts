@@ -139,6 +139,8 @@ export const EMPTY_AIRDROP_STATE: AirdropGuardState = {
  *  2. All outflows going to the same destination (drainer address)
  *  3. Near-zero SOL balance despite having token accounts
  *  4. High frequency of outbound transfers vs inbound
+ *
+ * Uses sequential fetches with delays to avoid public RPC 429 rate limits.
  */
 export async function detectSweepPatterns(
   connection: Connection,
@@ -152,40 +154,58 @@ export async function detectSweepPatterns(
   let sweepCount = 0;
 
   try {
-    // Fetch recent transaction signatures (last 20)
-    const signatures = await connection.getSignaturesForAddress(pubkey, { limit: 20 });
+    // Fetch recent transaction signatures (last 15)
+    const signatures = await connection.getSignaturesForAddress(pubkey, { limit: 15 });
 
     if (signatures.length === 0) {
       return { alerts, isCompromised: false, sweepCount: 0 };
     }
 
-    // Fetch parsed transactions (batch up to 10 for performance)
-    const txSigs = signatures.slice(0, 10).map(s => s.signature);
-    const txs = await connection.getParsedTransactions(txSigs, { maxSupportedTransactionVersion: 0 });
-
     // Track outflow destinations and patterns
-    const outflowDestinations: Map<string, number> = new Map(); // destination → count
+    const outflowDestinations: Map<string, number> = new Map();
     let outflowTxCount = 0;
     let inflowTxCount = 0;
     const transferTimestamps: { time: number; type: 'in' | 'out'; amount: number; destination?: string }[] = [];
+    let fetchedCount = 0;
+    let failCount = 0;
 
-    for (const tx of txs) {
-      if (!tx?.meta || !tx.transaction) continue;
+    // Fetch transactions ONE AT A TIME with generous delays to avoid 429 rate limits
+    // Public Solana RPC aggressively rate-limits getParsedTransaction
+    const txsToFetch = signatures.slice(0, 6); // max 6 attempts
+    for (let i = 0; i < txsToFetch.length; i++) {
+      if (failCount >= 2 && fetchedCount >= 2) break; // Stop if rate limited and we have enough data
+      // Generous delay between requests (1s+) to avoid public RPC 429
+      if (i > 0) await new Promise(r => setTimeout(r, 1200));
+
+      let tx;
+      try {
+        tx = await connection.getParsedTransaction(txsToFetch[i].signature, {
+          maxSupportedTransactionVersion: 0,
+        });
+        fetchedCount++;
+      } catch (fetchErr) {
+        failCount++;
+        console.warn(`[SweepDetector] TX fetch ${i} failed (${failCount}):`, fetchErr);
+        // On rate limit, wait extra before next attempt
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
+      }
+      if (!tx?.transaction) continue;
+
       const blockTime = (tx.blockTime ?? 0) * 1000;
-      const instructions = tx.transaction.message.instructions;
 
-      for (const ix of instructions) {
+      // ── Method 1: Parse instructions for explicit transfer details ──
+      for (const ix of tx.transaction.message.instructions) {
         if (!('parsed' in ix)) continue;
         const parsed = ix.parsed as Record<string, unknown>;
         const ixType = parsed.type as string;
 
-        // Detect SOL transfers
         if (ixType === 'transfer' && parsed.info) {
           const info = parsed.info as Record<string, unknown>;
           const source = info.source as string;
           const destination = info.destination as string;
-          const lamports = info.lamports as number;
-          const solAmount = (lamports ?? 0) / LAMPORTS_PER_SOL;
+          const lamports = (info.lamports as number) ?? 0;
+          const solAmount = lamports / LAMPORTS_PER_SOL;
 
           if (source === walletAddress && destination !== walletAddress) {
             outflowTxCount++;
@@ -197,7 +217,7 @@ export async function detectSweepPatterns(
           }
         }
 
-        // Detect SPL token transfers
+        // SPL token transfers
         if ((ixType === 'transfer' || ixType === 'transferChecked') && parsed.info) {
           const info = parsed.info as Record<string, unknown>;
           const authority = info.authority as string;
@@ -210,13 +230,61 @@ export async function detectSweepPatterns(
           }
         }
       }
+
+      // ── Method 2: Fallback — analyze pre/post SOL balance changes ──
+      // If no parsed transfer was found, check if wallet lost SOL in this tx
+      if (tx.meta) {
+        const accountKeys = tx.transaction.message.accountKeys;
+        const walletIdx = accountKeys.findIndex(
+          (k: { pubkey: PublicKey }) => k.pubkey.toBase58() === walletAddress
+        );
+        if (walletIdx >= 0) {
+          const preBal = tx.meta.preBalances[walletIdx];
+          const postBal = tx.meta.postBalances[walletIdx];
+          const diff = preBal - postBal;
+          // If the wallet lost significant SOL (more than just fees)
+          if (diff > 10_000) { // > 0.00001 SOL (more than fee)
+            const solLost = diff / LAMPORTS_PER_SOL;
+            // Find who gained the most SOL in this tx (likely the drainer)
+            let maxGainIdx = -1;
+            let maxGain = 0;
+            for (let j = 0; j < accountKeys.length; j++) {
+              if (j === walletIdx) continue;
+              const gain = tx.meta.postBalances[j] - tx.meta.preBalances[j];
+              if (gain > maxGain) {
+                maxGain = gain;
+                maxGainIdx = j;
+              }
+            }
+            if (maxGainIdx >= 0 && maxGain > 5000) {
+              const gainAddr = accountKeys[maxGainIdx].pubkey.toBase58();
+              // Only count if we didn't already detect this via parsed instructions
+              if (!outflowDestinations.has(gainAddr)) {
+                outflowTxCount++;
+                outflowDestinations.set(gainAddr, (outflowDestinations.get(gainAddr) ?? 0) + 1);
+                transferTimestamps.push({
+                  time: blockTime,
+                  type: 'out',
+                  amount: solLost,
+                  destination: gainAddr,
+                });
+              }
+            }
+          }
+          // Check for incoming SOL  
+          if (diff < -10_000) {
+            inflowTxCount++;
+            transferTimestamps.push({ time: blockTime, type: 'in', amount: Math.abs(diff) / LAMPORTS_PER_SOL });
+          }
+        }
+      }
     }
 
     // ── Pattern Analysis ──
 
-    // Pattern 1: Majority of transactions are outflows (draining)
+    // Pattern 1: High outflow ratio (even 1 out of 2 with near-zero balance is suspicious)
     const totalTxs = outflowTxCount + inflowTxCount;
-    if (totalTxs >= 3 && outflowTxCount / totalTxs > 0.75) {
+    if (totalTxs >= 2 && outflowTxCount >= 1 && outflowTxCount / totalTxs >= 0.5) {
       sweepCount += outflowTxCount;
       alerts.push({
         id: `sweep-outflow-ratio-${now}`,
@@ -230,7 +298,7 @@ export async function detectSweepPatterns(
     }
 
     // Pattern 2: All outflows going to same destination (sweeper address)
-    if (outflowDestinations.size === 1 && outflowTxCount >= 2) {
+    if (outflowDestinations.size === 1 && outflowTxCount >= 1) {
       drainerAddress = [...outflowDestinations.keys()][0];
       isCompromised = true;
       alerts.push({
@@ -244,11 +312,11 @@ export async function detectSweepPatterns(
       });
     }
 
-    // Pattern 3: Dominant destination (>70% of outflows go to one address)
-    if (!isCompromised && outflowDestinations.size > 1 && outflowTxCount >= 3) {
+    // Pattern 3: Dominant destination (>60% of outflows go to one address)
+    if (!isCompromised && outflowDestinations.size > 1 && outflowTxCount >= 2) {
       const sortedDests = [...outflowDestinations.entries()].sort((a, b) => b[1] - a[1]);
       const topDest = sortedDests[0];
-      if (topDest[1] / outflowTxCount > 0.7) {
+      if (topDest[1] / outflowTxCount >= 0.6) {
         drainerAddress = topDest[0];
         isCompromised = true;
         alerts.push({
@@ -269,8 +337,7 @@ export async function detectSweepPatterns(
     for (let i = 0; i < transferTimestamps.length - 1; i++) {
       const current = transferTimestamps[i];
       const next = transferTimestamps[i + 1];
-      // If inflow is immediately followed by outflow within 60 seconds
-      if (current.type === 'in' && next.type === 'out' && (next.time - current.time) < 60_000) {
+      if (current.type === 'in' && next.type === 'out' && (next.time - current.time) < 120_000) {
         rapidSweepCount++;
       }
     }
@@ -291,14 +358,30 @@ export async function detectSweepPatterns(
     try {
       const lamports = await connection.getBalance(pubkey);
       const solBalance = lamports / LAMPORTS_PER_SOL;
-      if (solBalance < 0.001 && outflowTxCount > 0) {
+      if (solBalance < 0.002 && outflowTxCount > 0) {
+        if (!isCompromised && outflowTxCount >= 1) isCompromised = true;
         alerts.push({
           id: `sweep-empty-${now}`,
           timestamp: now,
           type: 'sweep_detected',
-          severity: 'suspicious',
+          severity: 'dangerous',
           title: '💀 WALLET DRAINED — NEAR-ZERO BALANCE',
-          description: `This wallet has only ${solBalance.toFixed(6)} SOL remaining despite outbound transfer activity. Combined with other patterns, this strongly indicates the wallet has been drained.`,
+          description: `This wallet has only ${solBalance.toFixed(6)} SOL remaining despite ${outflowTxCount} outbound transfers. This strongly indicates the wallet has been drained by a sweeper bot.`,
+          actionRequired: false,
+        });
+      }
+
+      // Pattern 6: Many transactions but near-zero balance (drained wallet)
+      // Even if we couldn't parse all txs due to rate limits, this is very telling
+      if (solBalance < 0.005 && signatures.length >= 4 && !isCompromised) {
+        isCompromised = true;
+        alerts.push({
+          id: `sweep-high-activity-empty-${now}`,
+          timestamp: now,
+          type: 'key_compromise',
+          severity: 'dangerous',
+          title: '🔴 SUSPECTED COMPROMISE — HIGH ACTIVITY + EMPTY WALLET',
+          description: `This wallet has ${signatures.length} transactions but only ${solBalance.toFixed(6)} SOL remaining. This pattern is strongly associated with compromised wallets where a sweeper bot drains all incoming funds.`,
           actionRequired: false,
         });
       }
@@ -326,15 +409,18 @@ export async function scanTokenAccounts(
   let drainerAddress: string | undefined;
 
   try {
-    // Fetch Jupiter metadata, token accounts, AND sweep detection in parallel
-    const [tokenAccounts, jupMap, sweepResult] = await Promise.all([
+    // Step 1: Fetch token accounts and Jupiter metadata (fast, 2 calls)
+    const [tokenAccounts, jupMap] = await Promise.all([
       connection.getParsedTokenAccountsByOwner(
         pubkey,
         { programId: TOKEN_PROGRAM_ID },
       ),
       ensureJupiterTokenList(),
-      detectSweepPatterns(connection, walletAddress),
     ]);
+
+    // Step 2: Run sweep detection SEQUENTIALLY (uses multiple RPC calls with delays)
+    // This avoids 429 rate limits from the free public RPC
+    const sweepResult = await detectSweepPatterns(connection, walletAddress);
 
     // Merge sweep detection results
     if (sweepResult.alerts.length > 0) {
