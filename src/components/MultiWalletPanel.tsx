@@ -4,7 +4,8 @@
 import { useState, useCallback, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useConnection } from '@solana/wallet-adapter-react';
-import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import bs58 from 'bs58';
 import {
   Users,
   Plus,
@@ -78,32 +79,53 @@ export default memo(function MultiWalletPanel() {
   const [newLabel, setNewLabel] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addWarning, setAddWarning] = useState<string | null>(null);
 
-  // ── Add wallet ──
-  const handleAddWallet = useCallback(() => {
-    const trimmedAddr = newAddress.trim();
-    if (!trimmedAddr || trimmedAddr.length < 32) return;
-    if (wallets.some(w => w.address === trimmedAddr)) return;
+  // ── Try to derive public key from a secret key ──
+  const tryDeriveFromSecretKey = useCallback((input: string): { publicKey: string } | null => {
+    try {
+      const decoded = bs58.decode(input);
+      // Solana secret keys are exactly 64 bytes
+      if (decoded.length === 64) {
+        const kp = Keypair.fromSecretKey(decoded);
+        return { publicKey: kp.publicKey.toBase58() };
+      }
+    } catch { /* not a valid secret key */ }
+    return null;
+  }, []);
 
-    const profile: WalletProfile = {
-      address: trimmedAddr,
-      label: newLabel.trim() || `Wallet ${wallets.length + 1}`,
-      state: null,
-      isScanning: false,
-    };
-    const updated = [...wallets, profile];
-    setWallets(updated);
-    saveWallets(updated);
-    setNewAddress('');
-    setNewLabel('');
-  }, [newAddress, newLabel, wallets]);
+  // ── Validate input (address or secret key) → returns resolved public address ──
+  const validateAndResolve = useCallback((input: string): { valid: boolean; address?: string; error?: string; warning?: string } => {
+    if (!input || input.length === 0) return { valid: false, error: 'Input is empty' };
+    // Check base58 characters first
+    if (!/^[1-9A-HJ-NP-Za-km-z]+$/.test(input)) return { valid: false, error: 'Invalid characters — Solana uses Base58 (no 0, O, I, l).' };
 
-  // ── Remove wallet ──
-  const handleRemoveWallet = useCallback((address: string) => {
-    const updated = wallets.filter(w => w.address !== address);
-    setWallets(updated);
-    saveWallets(updated);
-  }, [wallets]);
+    // If it's a normal-length address (32-44 chars), validate as public key
+    if (input.length >= 32 && input.length <= 44) {
+      try {
+        new PublicKey(input);
+        return { valid: true, address: input };
+      } catch {
+        return { valid: false, error: 'Invalid Solana address format.' };
+      }
+    }
+
+    // If it's longer (likely a secret key ~87-88 chars, or tx sig ~88 chars), try to derive
+    if (input.length > 44) {
+      const derived = tryDeriveFromSecretKey(input);
+      if (derived) {
+        return {
+          valid: true,
+          address: derived.publicKey,
+          warning: `⚠️ SECRET KEY DETECTED — Never share your private key! We derived the public address (${derived.publicKey.slice(0, 6)}...${derived.publicKey.slice(-4)}) and will scan that instead. Your key is NOT stored.`,
+        };
+      }
+      return { valid: false, error: `Input is ${input.length} chars — not a valid address (32-44 chars) or secret key. Could be a transaction signature.` };
+    }
+
+    return { valid: false, error: `Too short (${input.length} chars) — Solana addresses are 32-44 characters.` };
+  }, [tryDeriveFromSecretKey]);
 
   // ── Scan a single wallet ──
   const scanWallet = useCallback(async (address: string) => {
@@ -154,6 +176,52 @@ export default memo(function MultiWalletPanel() {
       ));
     }
   }, [connection]);
+
+  // ── Add wallet ──
+  const handleAddWallet = useCallback(() => {
+    const trimmedInput = newAddress.trim();
+    setAddError(null);
+    setAddWarning(null);
+
+    const result = validateAndResolve(trimmedInput);
+    if (!result.valid || !result.address) {
+      setAddError(result.error || 'Invalid input');
+      return;
+    }
+
+    const resolvedAddress = result.address;
+
+    if (wallets.some(w => w.address === resolvedAddress)) {
+      setAddError('This wallet is already in the list.');
+      return;
+    }
+
+    if (result.warning) {
+      setAddWarning(result.warning);
+    }
+
+    const profile: WalletProfile = {
+      address: resolvedAddress,
+      label: newLabel.trim() || `Wallet ${wallets.length + 1}`,
+      state: null,
+      isScanning: false,
+    };
+    const updated = [...wallets, profile];
+    setWallets(updated);
+    saveWallets(updated);
+    setNewAddress('');
+    setNewLabel('');
+
+    // Auto-scan the newly added wallet
+    setTimeout(() => scanWallet(resolvedAddress), 300);
+  }, [newAddress, newLabel, wallets, validateAndResolve, scanWallet]);
+
+  // ── Remove wallet ──
+  const handleRemoveWallet = useCallback((address: string) => {
+    const updated = wallets.filter(w => w.address !== address);
+    setWallets(updated);
+    saveWallets(updated);
+  }, [wallets]);
 
   // ── Scan all wallets ──
   const scanAll = useCallback(async () => {
@@ -236,9 +304,9 @@ export default memo(function MultiWalletPanel() {
               <input
                 type="text"
                 value={newAddress}
-                onChange={e => setNewAddress(e.target.value)}
+                onChange={e => { setNewAddress(e.target.value); setAddError(null); setAddWarning(null); }}
                 onKeyDown={e => e.key === 'Enter' && handleAddWallet()}
-                placeholder="Paste Solana wallet address..."
+                placeholder="Paste wallet address or secret key..."
                 className="flex-1 font-mono text-[10px] bg-pyth-surface border border-pyth-border rounded px-3 py-2 
                   text-pyth-text placeholder:text-pyth-text-muted/40 outline-none focus:border-pyth-cyan/30"
               />
@@ -253,15 +321,31 @@ export default memo(function MultiWalletPanel() {
               />
               <button
                 onClick={handleAddWallet}
-                disabled={!newAddress.trim() || newAddress.trim().length < 32}
+                disabled={!newAddress.trim()}
                 className="flex items-center justify-center gap-1 font-mono text-[10px] px-3 py-2 rounded
                   bg-pyth-cyan/10 border border-pyth-cyan/20 text-pyth-cyan
                   hover:bg-pyth-cyan/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
               >
                 <Plus className="w-3 h-3" />
-                Add
+                Add & Scan
               </button>
             </div>
+
+            {/* Validation error */}
+            {addError && (
+              <div className="flex items-center gap-1.5 mb-3 px-2 py-1.5 rounded bg-pyth-red/5 border border-pyth-red/10">
+                <AlertTriangle className="w-3 h-3 text-pyth-red shrink-0" />
+                <span className="font-mono text-[9px] text-pyth-red">{addError}</span>
+              </div>
+            )}
+
+            {/* Secret key warning */}
+            {addWarning && (
+              <div className="flex items-start gap-1.5 mb-3 px-2 py-2 rounded bg-pyth-yellow/5 border border-pyth-yellow/20">
+                <Shield className="w-3.5 h-3.5 text-pyth-yellow shrink-0 mt-0.5" />
+                <span className="font-mono text-[9px] text-pyth-yellow leading-relaxed">{addWarning}</span>
+              </div>
+            )}
 
             {/* Comparison chart */}
             {chartData.length >= 2 && (
