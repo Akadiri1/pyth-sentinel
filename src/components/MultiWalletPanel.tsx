@@ -42,6 +42,8 @@ interface WalletProfile {
   isScanning: boolean;
   error?: string;
   solBalance?: number;
+  isCompromised?: boolean;
+  drainerAddress?: string;
 }
 
 const STORAGE_KEY = 'sentinel1_multi_wallets';
@@ -134,7 +136,7 @@ export default memo(function MultiWalletPanel() {
     ));
 
     try {
-      const { accounts, alerts } = await scanTokenAccounts(connection, address);
+      const { accounts, alerts, isCompromised, drainerAddress } = await scanTokenAccounts(connection, address);
       const { score } = computeAirdropRiskScore(accounts, alerts);
 
       // Get SOL balance
@@ -154,12 +156,14 @@ export default memo(function MultiWalletPanel() {
           ...w,
           isScanning: false,
           solBalance,
+          isCompromised,
+          drainerAddress,
           state: {
             isScanning: false,
             lastScanTime: Date.now(),
             tokenAccounts: accounts,
             alerts,
-            riskScore: score,
+            riskScore: isCompromised ? Math.min(score, 10) : score, // Cap at 10 if compromised
             totalDelegations,
             suspiciousTokenCount,
             notificationsEnabled: false,
@@ -462,11 +466,13 @@ function WalletCard({
 }) {
   const { state, isScanning, error, solBalance } = wallet;
   const [showTokens, setShowTokens] = useState(false);
+  const isCompromised = wallet.isCompromised;
   const riskLevel: AirdropRisk = state
-    ? state.riskScore >= 80 ? 'safe'
+    ? (isCompromised ? 'dangerous' 
+    : state.riskScore >= 80 ? 'safe'
     : state.riskScore >= 60 ? 'caution'
     : state.riskScore >= 35 ? 'suspicious'
-    : 'dangerous'
+    : 'dangerous')
     : 'safe';
 
   return (
@@ -516,6 +522,29 @@ function WalletCard({
         </div>
       ) : state ? (
         <div>
+          {/* 🔴 Compromise Banner */}
+          {isCompromised && (
+            <div className="mb-2 p-2 rounded-md bg-pyth-red/10 border border-pyth-red/30 animate-pulse">
+              <div className="flex items-center gap-1.5 mb-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-pyth-red" />
+                <span className="font-mono text-[10px] font-bold text-pyth-red uppercase">
+                  ⛔ WALLET COMPROMISED
+                </span>
+              </div>
+              <p className="font-mono text-[8px] text-pyth-red/80 leading-relaxed">
+                Sweeper bot detected — any funds sent to this wallet will be immediately drained.
+                {wallet.drainerAddress && (
+                  <span className="block mt-0.5">
+                    Drainer: <span className="font-bold">{wallet.drainerAddress}</span>
+                  </span>
+                )}
+              </p>
+              <p className="font-mono text-[7px] text-pyth-red/60 mt-1">
+                🚫 DO NOT deposit any funds into this wallet. Transfer remaining assets to a new wallet with a fresh key pair.
+              </p>
+            </div>
+          )}
+
           {/* Safety score */}
           <div className="flex items-center gap-2 mb-1">
             <span className="font-mono text-[8px] text-pyth-text-muted uppercase">Safety</span>

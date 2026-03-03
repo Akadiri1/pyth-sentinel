@@ -8,6 +8,7 @@ import {
   PublicKey,
   Transaction,
   type ParsedAccountData,
+  LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID,
@@ -36,7 +37,7 @@ export interface TokenAccountInfo {
 export interface AirdropAlert {
   id: string;
   timestamp: number;
-  type: 'malicious_delegation' | 'scam_token' | 'unknown_airdrop' | 'drain_attempt' | 'approval_risk';
+  type: 'malicious_delegation' | 'scam_token' | 'unknown_airdrop' | 'drain_attempt' | 'approval_risk' | 'sweep_detected' | 'key_compromise';
   severity: AirdropRisk;
   title: string;
   description: string;
@@ -132,26 +133,215 @@ export const EMPTY_AIRDROP_STATE: AirdropGuardState = {
 // ── Core Scanning Functions ──
 
 /**
+ * Analyze recent transaction history for signs of a sweeper bot or key compromise.
+ * Key indicators:
+ *  1. Rapid outflows after inflows (sweeper pattern)
+ *  2. All outflows going to the same destination (drainer address)
+ *  3. Near-zero SOL balance despite having token accounts
+ *  4. High frequency of outbound transfers vs inbound
+ */
+export async function detectSweepPatterns(
+  connection: Connection,
+  walletAddress: string,
+): Promise<{ alerts: AirdropAlert[]; isCompromised: boolean; drainerAddress?: string; sweepCount: number }> {
+  const pubkey = new PublicKey(walletAddress);
+  const alerts: AirdropAlert[] = [];
+  const now = Date.now();
+  let isCompromised = false;
+  let drainerAddress: string | undefined;
+  let sweepCount = 0;
+
+  try {
+    // Fetch recent transaction signatures (last 20)
+    const signatures = await connection.getSignaturesForAddress(pubkey, { limit: 20 });
+
+    if (signatures.length === 0) {
+      return { alerts, isCompromised: false, sweepCount: 0 };
+    }
+
+    // Fetch parsed transactions (batch up to 10 for performance)
+    const txSigs = signatures.slice(0, 10).map(s => s.signature);
+    const txs = await connection.getParsedTransactions(txSigs, { maxSupportedTransactionVersion: 0 });
+
+    // Track outflow destinations and patterns
+    const outflowDestinations: Map<string, number> = new Map(); // destination → count
+    let outflowTxCount = 0;
+    let inflowTxCount = 0;
+    const transferTimestamps: { time: number; type: 'in' | 'out'; amount: number; destination?: string }[] = [];
+
+    for (const tx of txs) {
+      if (!tx?.meta || !tx.transaction) continue;
+      const blockTime = (tx.blockTime ?? 0) * 1000;
+      const instructions = tx.transaction.message.instructions;
+
+      for (const ix of instructions) {
+        if (!('parsed' in ix)) continue;
+        const parsed = ix.parsed as Record<string, unknown>;
+        const ixType = parsed.type as string;
+
+        // Detect SOL transfers
+        if (ixType === 'transfer' && parsed.info) {
+          const info = parsed.info as Record<string, unknown>;
+          const source = info.source as string;
+          const destination = info.destination as string;
+          const lamports = info.lamports as number;
+          const solAmount = (lamports ?? 0) / LAMPORTS_PER_SOL;
+
+          if (source === walletAddress && destination !== walletAddress) {
+            outflowTxCount++;
+            outflowDestinations.set(destination, (outflowDestinations.get(destination) ?? 0) + 1);
+            transferTimestamps.push({ time: blockTime, type: 'out', amount: solAmount, destination });
+          } else if (destination === walletAddress) {
+            inflowTxCount++;
+            transferTimestamps.push({ time: blockTime, type: 'in', amount: solAmount });
+          }
+        }
+
+        // Detect SPL token transfers
+        if ((ixType === 'transfer' || ixType === 'transferChecked') && parsed.info) {
+          const info = parsed.info as Record<string, unknown>;
+          const authority = info.authority as string;
+          const dest = (info.destination as string) || '';
+
+          if (authority === walletAddress && dest) {
+            outflowTxCount++;
+            outflowDestinations.set(dest, (outflowDestinations.get(dest) ?? 0) + 1);
+            transferTimestamps.push({ time: blockTime, type: 'out', amount: 0, destination: dest });
+          }
+        }
+      }
+    }
+
+    // ── Pattern Analysis ──
+
+    // Pattern 1: Majority of transactions are outflows (draining)
+    const totalTxs = outflowTxCount + inflowTxCount;
+    if (totalTxs >= 3 && outflowTxCount / totalTxs > 0.75) {
+      sweepCount += outflowTxCount;
+      alerts.push({
+        id: `sweep-outflow-ratio-${now}`,
+        timestamp: now,
+        type: 'sweep_detected',
+        severity: 'dangerous',
+        title: '🚨 HIGH OUTFLOW RATIO — POSSIBLE DRAIN',
+        description: `${outflowTxCount} of the last ${totalTxs} transactions are outbound transfers. This pattern is consistent with an automated sweeper bot draining the wallet.`,
+        actionRequired: false,
+      });
+    }
+
+    // Pattern 2: All outflows going to same destination (sweeper address)
+    if (outflowDestinations.size === 1 && outflowTxCount >= 2) {
+      drainerAddress = [...outflowDestinations.keys()][0];
+      isCompromised = true;
+      alerts.push({
+        id: `sweep-single-dest-${now}`,
+        timestamp: now,
+        type: 'key_compromise',
+        severity: 'dangerous',
+        title: '🔴 KEY COMPROMISE — SWEEPER BOT DETECTED',
+        description: `All ${outflowTxCount} outbound transfers go to the same address (${shortenAddr(drainerAddress)}). This is the #1 indicator of a stolen private key with an active sweeper bot. ANY funds sent to this wallet will be immediately drained to the attacker's address.`,
+        actionRequired: false,
+      });
+    }
+
+    // Pattern 3: Dominant destination (>70% of outflows go to one address)
+    if (!isCompromised && outflowDestinations.size > 1 && outflowTxCount >= 3) {
+      const sortedDests = [...outflowDestinations.entries()].sort((a, b) => b[1] - a[1]);
+      const topDest = sortedDests[0];
+      if (topDest[1] / outflowTxCount > 0.7) {
+        drainerAddress = topDest[0];
+        isCompromised = true;
+        alerts.push({
+          id: `sweep-dominant-dest-${now}`,
+          timestamp: now,
+          type: 'key_compromise',
+          severity: 'dangerous',
+          title: '🔴 LIKELY KEY COMPROMISE — DRAIN PATTERN',
+          description: `${topDest[1]} of ${outflowTxCount} outbound transfers (${Math.round(topDest[1] / outflowTxCount * 100)}%) go to ${shortenAddr(drainerAddress!)}. This strongly suggests an automated sweeper draining funds from this wallet.`,
+          actionRequired: false,
+        });
+      }
+    }
+
+    // Pattern 4: Rapid outflows after inflows (sweeper timing)
+    transferTimestamps.sort((a, b) => a.time - b.time);
+    let rapidSweepCount = 0;
+    for (let i = 0; i < transferTimestamps.length - 1; i++) {
+      const current = transferTimestamps[i];
+      const next = transferTimestamps[i + 1];
+      // If inflow is immediately followed by outflow within 60 seconds
+      if (current.type === 'in' && next.type === 'out' && (next.time - current.time) < 60_000) {
+        rapidSweepCount++;
+      }
+    }
+    if (rapidSweepCount >= 1) {
+      if (!isCompromised) isCompromised = true;
+      alerts.push({
+        id: `sweep-rapid-${now}`,
+        timestamp: now,
+        type: 'sweep_detected',
+        severity: 'dangerous',
+        title: '⚡ RAPID SWEEP PATTERN DETECTED',
+        description: `${rapidSweepCount} instance(s) of funds being transferred out within seconds of arriving. This is the hallmark behavior of a sweeper bot monitoring this wallet in real-time.`,
+        actionRequired: false,
+      });
+    }
+
+    // Pattern 5: Check SOL balance (swept wallets usually have near-zero)
+    try {
+      const lamports = await connection.getBalance(pubkey);
+      const solBalance = lamports / LAMPORTS_PER_SOL;
+      if (solBalance < 0.001 && outflowTxCount > 0) {
+        alerts.push({
+          id: `sweep-empty-${now}`,
+          timestamp: now,
+          type: 'sweep_detected',
+          severity: 'suspicious',
+          title: '💀 WALLET DRAINED — NEAR-ZERO BALANCE',
+          description: `This wallet has only ${solBalance.toFixed(6)} SOL remaining despite outbound transfer activity. Combined with other patterns, this strongly indicates the wallet has been drained.`,
+          actionRequired: false,
+        });
+      }
+    } catch { /* ignore balance check failure */ }
+
+  } catch (err) {
+    console.warn('[AirdropGuard] Sweep detection failed:', err);
+  }
+
+  return { alerts, isCompromised, drainerAddress, sweepCount };
+}
+
+/**
  * Scan all SPL token accounts for a wallet and assess airdrop risks.
  */
 export async function scanTokenAccounts(
   connection: Connection,
   walletAddress: string,
-): Promise<{ accounts: TokenAccountInfo[]; alerts: AirdropAlert[] }> {
+): Promise<{ accounts: TokenAccountInfo[]; alerts: AirdropAlert[]; isCompromised?: boolean; drainerAddress?: string }> {
   const pubkey = new PublicKey(walletAddress);
   const accounts: TokenAccountInfo[] = [];
   const alerts: AirdropAlert[] = [];
   const now = Date.now();
+  let isCompromised = false;
+  let drainerAddress: string | undefined;
 
   try {
-    // Fetch Jupiter metadata in parallel with token accounts
-    const [tokenAccounts, jupMap] = await Promise.all([
+    // Fetch Jupiter metadata, token accounts, AND sweep detection in parallel
+    const [tokenAccounts, jupMap, sweepResult] = await Promise.all([
       connection.getParsedTokenAccountsByOwner(
         pubkey,
         { programId: TOKEN_PROGRAM_ID },
       ),
       ensureJupiterTokenList(),
+      detectSweepPatterns(connection, walletAddress),
     ]);
+
+    // Merge sweep detection results
+    if (sweepResult.alerts.length > 0) {
+      alerts.push(...sweepResult.alerts);
+    }
+    isCompromised = sweepResult.isCompromised;
+    drainerAddress = sweepResult.drainerAddress;
 
     for (const { pubkey: tokenPubkey, account } of tokenAccounts.value) {
       const parsed = account.data as ParsedAccountData;
@@ -308,7 +498,7 @@ export async function scanTokenAccounts(
     console.warn('[AirdropGuard] Token scan failed:', err);
   }
 
-  return { accounts, alerts };
+  return { accounts, alerts, isCompromised, drainerAddress };
 }
 
 /**
@@ -373,10 +563,15 @@ export function computeAirdropRiskScore(
 
   // Deduct for alerts
   for (const alert of alerts) {
-    switch (alert.severity) {
-      case 'dangerous': deductions += 25; break;
-      case 'suspicious': deductions += 12; break;
-      case 'caution': deductions += 5; break;
+    switch (alert.type) {
+      case 'key_compromise': deductions += 40; break; // Major penalty for confirmed compromise
+      case 'sweep_detected': deductions += 20; break; // Sweeper bot evidence
+      default:
+        switch (alert.severity) {
+          case 'dangerous': deductions += 25; break;
+          case 'suspicious': deductions += 12; break;
+          case 'caution': deductions += 5; break;
+        }
     }
   }
 
