@@ -145,6 +145,7 @@ export const EMPTY_AIRDROP_STATE: AirdropGuardState = {
 export async function detectSweepPatterns(
   connection: Connection,
   walletAddress: string,
+  prefetchedSignatures?: Array<{ signature: string; slot: number; err: unknown; blockTime?: number | null }>,
 ): Promise<{ alerts: AirdropAlert[]; isCompromised: boolean; drainerAddress?: string; sweepCount: number }> {
   const pubkey = new PublicKey(walletAddress);
   const alerts: AirdropAlert[] = [];
@@ -154,8 +155,8 @@ export async function detectSweepPatterns(
   let sweepCount = 0;
 
   try {
-    // Fetch recent transaction signatures (last 15)
-    const signatures = await connection.getSignaturesForAddress(pubkey, { limit: 15 });
+    // Use pre-fetched signatures if available (avoids extra RPC call)
+    const signatures = prefetchedSignatures ?? await connection.getSignaturesForAddress(pubkey, { limit: 15 });
 
     if (signatures.length === 0) {
       return { alerts, isCompromised: false, sweepCount: 0 };
@@ -354,38 +355,8 @@ export async function detectSweepPatterns(
       });
     }
 
-    // Pattern 5: Check SOL balance (swept wallets usually have near-zero)
-    try {
-      const lamports = await connection.getBalance(pubkey);
-      const solBalance = lamports / LAMPORTS_PER_SOL;
-      if (solBalance < 0.002 && outflowTxCount > 0) {
-        if (!isCompromised && outflowTxCount >= 1) isCompromised = true;
-        alerts.push({
-          id: `sweep-empty-${now}`,
-          timestamp: now,
-          type: 'sweep_detected',
-          severity: 'dangerous',
-          title: '💀 WALLET DRAINED — NEAR-ZERO BALANCE',
-          description: `This wallet has only ${solBalance.toFixed(6)} SOL remaining despite ${outflowTxCount} outbound transfers. This strongly indicates the wallet has been drained by a sweeper bot.`,
-          actionRequired: false,
-        });
-      }
-
-      // Pattern 6: Many transactions but near-zero balance (drained wallet)
-      // Even if we couldn't parse all txs due to rate limits, this is very telling
-      if (solBalance < 0.005 && signatures.length >= 4 && !isCompromised) {
-        isCompromised = true;
-        alerts.push({
-          id: `sweep-high-activity-empty-${now}`,
-          timestamp: now,
-          type: 'key_compromise',
-          severity: 'dangerous',
-          title: '🔴 SUSPECTED COMPROMISE — HIGH ACTIVITY + EMPTY WALLET',
-          description: `This wallet has ${signatures.length} transactions but only ${solBalance.toFixed(6)} SOL remaining. This pattern is strongly associated with compromised wallets where a sweeper bot drains all incoming funds.`,
-          actionRequired: false,
-        });
-      }
-    } catch { /* ignore balance check failure */ }
+    // Pattern 5: Check SOL balance — skip if already handled by caller
+    // (When called from scanTokenAccounts, balance is already checked there)
 
   } catch (err) {
     console.warn('[AirdropGuard] Sweep detection failed:', err);
@@ -400,34 +371,61 @@ export async function detectSweepPatterns(
 export async function scanTokenAccounts(
   connection: Connection,
   walletAddress: string,
-): Promise<{ accounts: TokenAccountInfo[]; alerts: AirdropAlert[]; isCompromised?: boolean; drainerAddress?: string }> {
+): Promise<{ accounts: TokenAccountInfo[]; alerts: AirdropAlert[]; isCompromised?: boolean; drainerAddress?: string; solBalance?: number }> {
   const pubkey = new PublicKey(walletAddress);
   const accounts: TokenAccountInfo[] = [];
   const alerts: AirdropAlert[] = [];
   const now = Date.now();
   let isCompromised = false;
   let drainerAddress: string | undefined;
+  let walletSolBalance: number | undefined;
 
   try {
-    // Step 1: Fetch token accounts and Jupiter metadata (fast, 2 calls)
-    const [tokenAccounts, jupMap] = await Promise.all([
+    // ── Step 1: Batch ALL essential RPC calls in ONE parallel request ──
+    // This avoids sequential rate-limiting from the free public RPC.
+    // We fetch: token accounts, SOL balance, tx signatures, AND Jupiter metadata.
+    const [tokenAccounts, jupMap, balanceLamports, signatures] = await Promise.all([
       connection.getParsedTokenAccountsByOwner(
         pubkey,
         { programId: TOKEN_PROGRAM_ID },
       ),
       ensureJupiterTokenList(),
+      connection.getBalance(pubkey).catch(() => 0),
+      connection.getSignaturesForAddress(pubkey, { limit: 15 }).catch(() => []),
     ]);
 
-    // Step 2: Run sweep detection SEQUENTIALLY (uses multiple RPC calls with delays)
-    // This avoids 429 rate limits from the free public RPC
-    const sweepResult = await detectSweepPatterns(connection, walletAddress);
+    walletSolBalance = balanceLamports / LAMPORTS_PER_SOL;
 
-    // Merge sweep detection results
-    if (sweepResult.alerts.length > 0) {
-      alerts.push(...sweepResult.alerts);
+    // ── Step 2: Quick compromise heuristic (NO extra RPC calls needed) ──
+    // If wallet has many transactions but near-zero balance, it's likely drained
+    const sigCount = signatures.length;
+    if (walletSolBalance < 0.005 && sigCount >= 4) {
+      isCompromised = true;
+      alerts.push({
+        id: `sweep-high-activity-empty-${now}`,
+        timestamp: now,
+        type: 'key_compromise',
+        severity: 'dangerous',
+        title: '🔴 SUSPECTED COMPROMISE — HIGH ACTIVITY + EMPTY WALLET',
+        description: `This wallet has ${sigCount} transactions but only ${walletSolBalance.toFixed(6)} SOL remaining. This pattern is strongly associated with compromised wallets where a sweeper bot drains all incoming funds.`,
+        actionRequired: false,
+      });
     }
-    isCompromised = sweepResult.isCompromised;
-    drainerAddress = sweepResult.drainerAddress;
+
+    // ── Step 3: Deep sweep analysis (best-effort, uses extra RPC calls with delays) ──
+    // Only attempt if we have signatures and aren't already rate-limited
+    if (sigCount > 0) {
+      try {
+        const sweepResult = await detectSweepPatterns(connection, walletAddress, signatures);
+        if (sweepResult.alerts.length > 0) {
+          alerts.push(...sweepResult.alerts);
+        }
+        if (sweepResult.isCompromised) isCompromised = true;
+        if (sweepResult.drainerAddress) drainerAddress = sweepResult.drainerAddress;
+      } catch (sweepErr) {
+        console.warn('[AirdropGuard] Deep sweep analysis failed (rate limited), using heuristic only:', sweepErr);
+      }
+    }
 
     for (const { pubkey: tokenPubkey, account } of tokenAccounts.value) {
       const parsed = account.data as ParsedAccountData;
@@ -584,7 +582,7 @@ export async function scanTokenAccounts(
     console.warn('[AirdropGuard] Token scan failed:', err);
   }
 
-  return { accounts, alerts, isCompromised, drainerAddress };
+  return { accounts, alerts, isCompromised, drainerAddress, solBalance: walletSolBalance };
 }
 
 /**

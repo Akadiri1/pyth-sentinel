@@ -4,7 +4,7 @@
 import { useState, useCallback, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useConnection } from '@solana/wallet-adapter-react';
-import { PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { PublicKey, Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
 import {
   Users,
@@ -136,15 +136,11 @@ export default memo(function MultiWalletPanel() {
     ));
 
     try {
-      const { accounts, alerts, isCompromised, drainerAddress } = await scanTokenAccounts(connection, address);
+      const { accounts, alerts, isCompromised, drainerAddress, solBalance: returnedBalance } = await scanTokenAccounts(connection, address);
       const { score } = computeAirdropRiskScore(accounts, alerts);
 
-      // Get SOL balance
-      let solBalance = 0;
-      try {
-        const lamports = await connection.getBalance(new PublicKey(address));
-        solBalance = lamports / LAMPORTS_PER_SOL;
-      } catch { /* ignore */ }
+      // Use SOL balance from scanTokenAccounts (already fetched there)
+      const solBalance = returnedBalance ?? 0;
 
       const totalDelegations = accounts.filter(a => a.delegate !== null).length;
       const suspiciousTokenCount = accounts.filter(
